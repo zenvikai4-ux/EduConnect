@@ -6,43 +6,64 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const C = {
   brand: '#1E3A8A', white: '#fff', gray50: '#f8fafc',
-  gray100: '#f1f5f9', gray200: '#e2e8f0', gray400: '#94a3b8',
+  gray200: '#e2e8f0', gray400: '#94a3b8',
   gray500: '#64748b', gray700: '#334155', gray900: '#0f172a',
   dangerBg: '#fde8e8', dangerText: '#9b1c1c',
 };
 
-// Phone number → authStore credentials mapping
-// Password here must match what's in authStore DEMO_USERS
-const PHONE_MAP: Record<string, { username: string; role: string; password: string }> = {
-  '9059717476': { username: 'superadmin',    role: 'superadmin', password: 'Admin@123'    },
-  '9876500001': { username: 'schooladmin',   role: 'admin',      password: 'School@456'   },
-  '9876500003': { username: 'kavitha.rao',   role: 'teacher',    password: 'Teacher@789'  },
-  '9876500005': { username: 'ramesh.sharma', role: 'parent',     password: 'Parent@321'   },
-  '9876500004': { username: 'aarav.sharma',  role: 'student',    password: 'Student@101'  },
-  '9876500006': { username: 'ramu.driver',   role: 'driver',     password: 'Driver@999'   },
-};
-
-// What the user types → what authStore expects
-const PASSWORD_ALIAS: Record<string, string> = {
-  'Admin@123':      'Admin@123',
-  'Admin@1234':     'School@456',   // admin types Admin@1234 → maps to School@456
-  'School@456':     'School@456',
-  'Teacher@1234':   'Teacher@789',
-  'Teacher@789':    'Teacher@789',
-  'Parent@1234':    'Parent@321',
-  'Parent@321':     'Parent@321',
-  'Student@1234':   'Student@101',
-  'Student@101':    'Student@101',
-  'Driver@1234':    'Driver@999',
-  'Driver@999':     'Driver@999',
-  'Principal@1234': 'School@456',
+// Complete user objects — exactly what authStore needs
+const USERS: Record<string, { phone: string; password: string; role: string; user: any }> = {
+  '9059717476': {
+    phone: '9059717476', password: 'Admin@123', role: 'superadmin',
+    user: { id: 'sa_001', name: 'Platform Admin', phone: '+91 9059717476', role: 'superadmin', isActive: true },
+  },
+  '9876500001': {
+    phone: '9876500001', password: 'Admin@1234', role: 'admin',
+    user: { id: 'admin_001', name: 'Rajesh Kumar', phone: '+91 9876500001', role: 'admin', schoolId: 'school_001', isActive: true },
+  },
+  '9876500002': {
+    phone: '9876500002', password: 'Principal@1234', role: 'admin',
+    user: { id: 'prin_001', name: 'Dr. Sunita Sharma', phone: '+91 9876500002', role: 'admin', schoolId: 'school_001', isActive: true },
+  },
+  '9876500003': {
+    phone: '9876500003', password: 'Teacher@1234', role: 'teacher',
+    user: { id: 'tchr_001', name: 'Ms. Kavitha Rao', phone: '+91 9876500003', role: 'teacher', schoolId: 'school_001', isActive: true },
+  },
+  '9876500004': {
+    phone: '9876500004', password: 'Student@1234', role: 'student',
+    user: {
+      id: 'stu_001', name: 'Arjun Patel', phone: '+91 9876500004', role: 'student',
+      schoolId: 'school_001', classId: 'class_8a', grade: '8', section: 'A',
+      rollNumber: '8A-01', parentId: 'par_001',
+      subjects: ['Science', 'Mathematics', 'English', 'Social Studies', 'Hindi'],
+      upcomingExams: [
+        { subject: 'Science', date: '2026-06-14' },
+        { subject: 'Mathematics', date: '2026-06-15' },
+        { subject: 'English', date: '2026-06-16' },
+      ],
+      pendingHomework: [
+        { subject: 'Science', title: 'Chapter 9 Reading', dueDate: '2026-05-28' },
+        { subject: 'Mathematics', title: 'Exercise 5.3', dueDate: '2026-05-29' },
+      ],
+      xpPoints: 340, level: 4, streak: 4, isActive: true,
+    },
+  },
+  '9876500005': {
+    phone: '9876500005', password: 'Parent@1234', role: 'parent',
+    user: { id: 'par_001', name: 'Suresh Patel', phone: '+91 9876500005', role: 'parent', schoolId: 'school_001', isActive: true },
+  },
+  '9876500006': {
+    phone: '9876500006', password: 'Driver@1234', role: 'driver',
+    user: { id: 'drv_001', name: 'Ramu Yadav', phone: '+91 9876500006', role: 'driver', schoolId: 'school_001', busNumber: 'Bus #12', routeName: 'Route A · HSR Layout', isActive: true },
+  },
 };
 
 export default function LoginScreen() {
-  const { login } = useAuthStore();
+  const { } = useAuthStore(); // just to trigger re-render
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -56,37 +77,26 @@ export default function LoginScreen() {
     }
     if (!password.trim()) { setError('Enter your password.'); return; }
 
-    const mapping = PHONE_MAP[cleanPhone];
-    if (!mapping) { setError('Mobile number not registered.'); return; }
+    const record = USERS[cleanPhone];
+    if (!record) { setError('Mobile number not registered.'); return; }
+    if (record.password !== password.trim()) { setError('Incorrect password.'); return; }
 
     setLoading(true); setError('');
     try {
-      // Map typed password to authStore password
-      const authPassword = PASSWORD_ALIAS[password.trim()] ?? mapping.password;
-
-      await login({
-        username: mapping.username,
-        password: authPassword,
-        role: mapping.role as any,
+      // Directly set the auth state — bypasses all authStore login logic
+      const token = `eduspark_${cleanPhone}_${Date.now()}`;
+      await AsyncStorage.setItem('auth_token', token);
+      await AsyncStorage.setItem('auth_user', JSON.stringify(record.user));
+      // Update zustand store directly
+      useAuthStore.setState({
+        user: record.user,
+        token,
+        isAuthenticated: true,
+        isLoading: false,
+        error: null,
       });
-
-      // Check if login failed
-      const state = useAuthStore.getState();
-      if (state.error || !state.isAuthenticated) {
-        // Try with the exact authStore password directly
-        await login({
-          username: mapping.username,
-          password: mapping.password,
-          role: mapping.role as any,
-        });
-        const state2 = useAuthStore.getState();
-        if (!state2.isAuthenticated) {
-          setError('Invalid password. Please try again.');
-        }
-      }
     } catch (e: any) {
       setError('Login failed. Please try again.');
-    } finally {
       setLoading(false);
     }
   };
