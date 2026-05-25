@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { supabase, UserRole } from '../utils/supabase';
+import { supabaseAdmin, UserRole } from '../utils/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type { UserRole };
 
@@ -11,7 +12,6 @@ export interface User {
   schoolId: string;
   phone: string;
   email?: string;
-  // Role-specific
   classId?: string;
   className?: string;
   subjectId?: string;
@@ -29,24 +29,52 @@ interface AppState {
   chatOpen: boolean;
   setUser: (u: User | null) => void;
   setChatOpen: (v: boolean) => void;
-  logout: () => Promise<void>;
+  logout: () => void;
   hydrate: () => Promise<void>;
 }
 
+const STORAGE_KEY = 'eduspark_user';
+
 export const useStore = create<AppState>((set) => ({
-  user: null, isLoggedIn: false, isLoading: true, chatOpen: false,
-  setUser: (user) => set({ user, isLoggedIn: !!user }),
+  user: null,
+  isLoggedIn: false,
+  isLoading: true,
+  chatOpen: false,
+
+  setUser: (user) => {
+    if (user) {
+      // Persist to AsyncStorage
+      try {
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+      } catch (e) {}
+    }
+    set({ user, isLoggedIn: !!user });
+  },
+
   setChatOpen: (chatOpen) => set({ chatOpen }),
-  logout: async () => {
-    await supabase.auth.signOut();
+
+  logout: () => {
+    try { AsyncStorage.removeItem(STORAGE_KEY); } catch (e) {}
     set({ user: null, isLoggedIn: false });
   },
+
   hydrate: async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) { set({ isLoading: false }); return; }
-      const profile = await fetchUserProfile(session.user.id);
-      if (profile) set({ user: profile, isLoggedIn: true });
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const user = JSON.parse(stored) as User;
+        // Verify user still exists and is active
+        const { data } = await supabaseAdmin
+          .from('users')
+          .select('id, is_active')
+          .eq('id', user.id)
+          .single();
+        if (data?.is_active) {
+          set({ user, isLoggedIn: true });
+        } else {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+        }
+      }
     } catch (e) {
       console.warn('[hydrate]', e);
     } finally {
@@ -54,66 +82,3 @@ export const useStore = create<AppState>((set) => ({
     }
   },
 }));
-
-export async function fetchUserProfile(authId: string): Promise<User | null> {
-  try {
-    // Fetch user row
-    const { data: u, error } = await supabase
-      .from('users').select('*').eq('id', authId).single();
-    if (error || !u) { console.error('[profile] user error:', error); return null; }
-
-    // Fetch school separately
-    let school = '', schoolId = u.school_id ?? '';
-    if (u.school_id) {
-      const { data: s } = await supabase.from('schools').select('id, name').eq('id', u.school_id).single();
-      school = s?.name ?? '';
-      schoolId = s?.id ?? u.school_id;
-    }
-
-    const base: User = { id: u.id, name: u.name, role: u.role, school, schoolId, phone: u.phone, email: u.email };
-
-    // Role-specific data
-    if (u.role === 'student') {
-      const { data: en } = await supabase.from('class_enrollments')
-        .select('class_id, classes(name)').eq('student_id', u.id).limit(1).single();
-      base.classId = en?.class_id;
-      base.className = (en as any)?.classes?.name;
-    }
-
-    if (u.role === 'parent') {
-      const { data: link } = await supabase.from('parent_student_links')
-        .select('student_id, users!student_id(name)').eq('parent_id', u.id).limit(1).single();
-      base.childId = link?.student_id;
-      base.childName = (link as any)?.users?.name;
-    }
-
-    if (u.role === 'teacher' || u.role === 'class_teacher') {
-      const { data: ta } = await supabase.from('teacher_assignments')
-        .select('class_id, subject_id, classes(name), subjects(name, id)')
-        .eq('teacher_id', u.id).limit(1).single();
-      base.classId = ta?.class_id;
-      base.className = (ta as any)?.classes?.name;
-      base.subject = (ta as any)?.subjects?.name;
-      base.subjectId = (ta as any)?.subjects?.id;
-    }
-
-    if (u.role === 'driver') {
-      const { data: route } = await supabase.from('bus_routes')
-        .select('id').eq('driver_id', u.id).single();
-      base.routeId = route?.id;
-    }
-
-    return base;
-  } catch (e) {
-    console.error('[profile] exception:', e);
-    return null;
-  }
-}
-
-supabase.auth.onAuthStateChange(async (event, session) => {
-  if (event === 'SIGNED_OUT') useStore.getState().setUser(null);
-  else if (event === 'SIGNED_IN' && session?.user) {
-    const p = await fetchUserProfile(session.user.id);
-    if (p) useStore.getState().setUser(p);
-  }
-});
