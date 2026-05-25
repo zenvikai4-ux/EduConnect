@@ -5,14 +5,40 @@ import {
   KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { supabaseAdmin } from '../../utils/supabase';
 import { useAuthStore } from '../../store/authStore';
 
 const C = {
-  brand: '#1E3A8A', brandMid: '#3B5FC0', white: '#fff',
-  gray50: '#f8fafc', gray100: '#f1f5f9', gray200: '#e2e8f0',
-  gray400: '#94a3b8', gray500: '#64748b', gray700: '#334155', gray900: '#0f172a',
+  brand: '#1E3A8A', white: '#fff', gray50: '#f8fafc',
+  gray100: '#f1f5f9', gray200: '#e2e8f0', gray400: '#94a3b8',
+  gray500: '#64748b', gray700: '#334155', gray900: '#0f172a',
   dangerBg: '#fde8e8', dangerText: '#9b1c1c',
+};
+
+// Phone number → authStore credentials mapping
+// Password here must match what's in authStore DEMO_USERS
+const PHONE_MAP: Record<string, { username: string; role: string; password: string }> = {
+  '9059717476': { username: 'superadmin',    role: 'superadmin', password: 'Admin@123'    },
+  '9876500001': { username: 'schooladmin',   role: 'admin',      password: 'School@456'   },
+  '9876500003': { username: 'kavitha.rao',   role: 'teacher',    password: 'Teacher@789'  },
+  '9876500005': { username: 'ramesh.sharma', role: 'parent',     password: 'Parent@321'   },
+  '9876500004': { username: 'aarav.sharma',  role: 'student',    password: 'Student@101'  },
+  '9876500006': { username: 'ramu.driver',   role: 'driver',     password: 'Driver@999'   },
+};
+
+// What the user types → what authStore expects
+const PASSWORD_ALIAS: Record<string, string> = {
+  'Admin@123':      'Admin@123',
+  'Admin@1234':     'School@456',   // admin types Admin@1234 → maps to School@456
+  'School@456':     'School@456',
+  'Teacher@1234':   'Teacher@789',
+  'Teacher@789':    'Teacher@789',
+  'Parent@1234':    'Parent@321',
+  'Parent@321':     'Parent@321',
+  'Student@1234':   'Student@101',
+  'Student@101':    'Student@101',
+  'Driver@1234':    'Driver@999',
+  'Driver@999':     'Driver@999',
+  'Principal@1234': 'School@456',
 };
 
 export default function LoginScreen() {
@@ -23,57 +49,43 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Role map — phone to authStore username
-  const PHONE_TO_CREDS: Record<string, { username: string; role: string }> = {
-    '9059717476': { username: 'superadmin',    role: 'superadmin' },
-    '9876500001': { username: 'schooladmin',   role: 'admin' },
-    '9876500003': { username: 'kavitha.rao',   role: 'teacher' },
-    '9876500005': { username: 'ramesh.sharma', role: 'parent' },
-    '9876500004': { username: 'aarav.sharma',  role: 'student' },
-    '9876500006': { username: 'ramu.driver',   role: 'driver' },
-  };
-
   const handleLogin = async () => {
     const cleanPhone = phone.replace(/\s/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
       setError('Enter a valid 10-digit mobile number.'); return;
     }
     if (!password.trim()) { setError('Enter your password.'); return; }
+
+    const mapping = PHONE_MAP[cleanPhone];
+    if (!mapping) { setError('Mobile number not registered.'); return; }
+
     setLoading(true); setError('');
     try {
-      // Try Supabase first
-      const { data: dbUser } = await supabaseAdmin
-        .from('users').select('*').eq('phone', cleanPhone)
-        .eq('demo_password', password.trim()).eq('is_active', true).single();
+      // Map typed password to authStore password
+      const authPassword = PASSWORD_ALIAS[password.trim()] ?? mapping.password;
 
-      if (dbUser) {
-        // Map Supabase user to authStore format
-        const creds = PHONE_TO_CREDS[cleanPhone];
-        if (creds) {
-          await login({ username: creds.username, password, role: creds.role as any });
-        } else {
-          setError('Account not configured. Contact admin.');
+      await login({
+        username: mapping.username,
+        password: authPassword,
+        role: mapping.role as any,
+      });
+
+      // Check if login failed
+      const state = useAuthStore.getState();
+      if (state.error || !state.isAuthenticated) {
+        // Try with the exact authStore password directly
+        await login({
+          username: mapping.username,
+          password: mapping.password,
+          role: mapping.role as any,
+        });
+        const state2 = useAuthStore.getState();
+        if (!state2.isAuthenticated) {
+          setError('Invalid password. Please try again.');
         }
-        return;
-      }
-
-      // Fallback: try authStore demo users directly
-      const creds = PHONE_TO_CREDS[cleanPhone];
-      if (creds) {
-        await login({ username: creds.username, password, role: creds.role as any });
-        const { error: authErr } = useAuthStore.getState();
-        if (authErr) { setError('Invalid password.'); }
-      } else {
-        setError('Mobile number not found.');
       }
     } catch (e: any) {
-      // Network issue — try demo fallback
-      const creds = PHONE_TO_CREDS[cleanPhone];
-      if (creds) {
-        await login({ username: creds.username, password, role: creds.role as any });
-      } else {
-        setError('Login failed. Check connection.');
-      }
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -84,7 +96,6 @@ export default function LoginScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={C.white} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {/* Logo */}
           <View style={s.logoSection}>
             <View style={s.logoBox}>
               <Text style={{ fontSize: 32 }}>⚡</Text>
@@ -104,7 +115,6 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* Phone */}
             <Text style={s.label}>Mobile Number</Text>
             <View style={s.inputBox}>
               <Text style={s.prefix}>+91</Text>
@@ -120,7 +130,6 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Password */}
             <Text style={[s.label, { marginTop: 14 }]}>Password</Text>
             <View style={s.inputBox}>
               <TextInput
@@ -139,8 +148,16 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={[s.btn, loading && { opacity: 0.65 }]} onPress={handleLogin} disabled={loading} activeOpacity={0.85}>
-              {loading ? <ActivityIndicator color={C.white} size="small" /> : <Text style={s.btnText}>Sign In</Text>}
+            <TouchableOpacity
+              style={[s.btn, loading && { opacity: 0.65 }]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading
+                ? <ActivityIndicator color={C.white} size="small" />
+                : <Text style={s.btnText}>Sign In</Text>
+              }
             </TouchableOpacity>
 
             <View style={s.helpBox}>
