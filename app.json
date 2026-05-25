@@ -31,11 +31,11 @@
       ]
     },
     "extra": {
-      "eas": {
-        "projectId": "0ff9d643-c57b-4d6b-bd9f-b7146b75a5db"
-      }
-    },
-    "owner": "kakanisathvika3",
+  "eas": {
+    "projectId": "6a5b877f-de86-4aad-82ee-c9848fcaaf75"
+  }
+},
+    "owner": "Krishnasai5",
     "plugins": [
       "expo-font",
       [
