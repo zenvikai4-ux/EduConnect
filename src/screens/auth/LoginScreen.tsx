@@ -5,7 +5,7 @@ import {
   Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
+import { useStore } from '../../store';
 
 const C = {
   brand: '#1E3A8A', white: '#fff', gray50: '#f8fafc',
@@ -14,39 +14,71 @@ const C = {
   dangerBg: '#fde8e8', dangerText: '#9b1c1c',
 };
 
+// All demo users — setUser() format matching User interface in store/index.ts
+const DEMO_USERS: Record<string, { passwords: string[]; user: any }> = {
+  '9059717476': {
+    passwords: ['Admin@123'],
+    user: { id: 'sa_001', name: 'Platform Admin', role: 'super_admin', school: 'Zenvik AI', schoolId: '', phone: '9059717476' },
+  },
+  '9876500001': {
+    passwords: ['Admin@1234'],
+    user: { id: 'admin_001', name: 'Rajesh Kumar', role: 'admin', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500001' },
+  },
+  '9876500002': {
+    passwords: ['Principal@1234'],
+    user: { id: 'prin_001', name: 'Dr. Sunita Sharma', role: 'principal', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500002' },
+  },
+  '9876500003': {
+    passwords: ['Teacher@1234'],
+    user: { id: 'tchr_001', name: 'Ms. Kavitha Rao', role: 'teacher', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500003', classId: 'class_8a', className: '8A', subject: 'Science', subjectId: 'sub_sci' },
+  },
+  '9876500004': {
+    passwords: ['Student@1234'],
+    user: { id: 'stu_001', name: 'Arjun Patel', role: 'student', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500004', classId: 'class_8a', className: '8A' },
+  },
+  '9876500005': {
+    passwords: ['Parent@1234'],
+    user: { id: 'par_001', name: 'Suresh Patel', role: 'parent', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500005', childId: 'stu_001', childName: 'Arjun Patel' },
+  },
+  '9876500006': {
+    passwords: ['Driver@1234'],
+    user: { id: 'drv_001', name: 'Ramu Yadav', role: 'driver', school: 'Greenfield Academy', schoolId: 'school_001', phone: '9876500006', routeId: 'route_001' },
+  },
+};
+
 export default function LoginScreen() {
-  const { login, error, clearError } = useAuthStore();
+  const setUser = useStore(s => s.setUser);
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLogin = () => {
+    setError('');
     const cleanPhone = phone.replace(/\s/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
-      useAuthStore.setState({ error: 'Enter a valid 10-digit mobile number.' });
-      return;
+      setError('Enter a valid 10-digit mobile number.'); return;
     }
     if (!password.trim()) {
-      useAuthStore.setState({ error: 'Enter your password.' });
-      return;
+      setError('Enter your password.'); return;
     }
-    // Pass phone directly — authStore handles the rest
-    login({ phone: cleanPhone, password: password.trim() });
+    const record = DEMO_USERS[cleanPhone];
+    if (!record) {
+      setError('Mobile number not registered.'); return;
+    }
+    if (!record.passwords.includes(password.trim())) {
+      setError('Incorrect password.'); return;
+    }
+    // Directly call setUser — App.tsx watches isLoggedIn and switches immediately
+    setUser(record.user);
   };
 
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={C.white} />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Logo */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
           <View style={s.logoSection}>
             <View style={s.logoBox}>
               <Text style={{ fontSize: 32 }}>⚡</Text>
@@ -55,7 +87,6 @@ export default function LoginScreen() {
             <Text style={s.tagline}>by Zenvik AI</Text>
           </View>
 
-          {/* Card */}
           <View style={s.card}>
             <Text style={s.cardTitle}>Welcome back</Text>
             <Text style={s.cardSub}>Sign in with your school credentials</Text>
@@ -73,7 +104,7 @@ export default function LoginScreen() {
               <TextInput
                 style={s.input}
                 value={phone}
-                onChangeText={t => { clearError(); setPhone(t); }}
+                onChangeText={t => { setError(''); setPhone(t); }}
                 placeholder="10-digit number"
                 placeholderTextColor={C.gray400}
                 keyboardType="phone-pad"
@@ -86,7 +117,7 @@ export default function LoginScreen() {
               <TextInput
                 style={[s.input, { flex: 1 }]}
                 value={password}
-                onChangeText={t => { clearError(); setPassword(t); }}
+                onChangeText={t => { setError(''); setPassword(t); }}
                 placeholder="Enter your password"
                 placeholderTextColor={C.gray400}
                 secureTextEntry={!showPass}
@@ -94,10 +125,7 @@ export default function LoginScreen() {
                 onSubmitEditing={handleLogin}
               />
               <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 8 }}>
-                <Ionicons
-                  name={showPass ? 'eye-off-outline' : 'eye-outline'}
-                  size={20} color={C.gray400}
-                />
+                <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={20} color={C.gray400} />
               </TouchableOpacity>
             </View>
 
@@ -107,9 +135,7 @@ export default function LoginScreen() {
 
             <View style={s.helpBox}>
               <Ionicons name="information-circle-outline" size={14} color={C.gray400} />
-              <Text style={s.helpText}>
-                Credentials provided by your school administrator.
-              </Text>
+              <Text style={s.helpText}>Credentials provided by your school administrator.</Text>
             </View>
           </View>
 
