@@ -1,1 +1,1 @@
-export { ParentProgressScreen, ParentFeesScreen, ParentMessagesScreen } from './ParentScreens';
+export { ParentProgressScreen, ParentFeeScreen, ParentAttendanceScreen } from './ParentScreens';

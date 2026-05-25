@@ -1,1 +1,1 @@
-export { SuperAdminNavigator } from '../admin/AdminNavigator';
+export { AdminNavigator as SuperAdminNavigator } from '../admin/AdminNavigator';

@@ -1,19 +1,18 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Animated, StatusBar,
+  StatusBar, Animated, Easing,
 } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
-import { Colors, Radius } from '../../constants/theme';
+import { Colors, Radius, Shadow } from '../../constants/theme';
 import {
-  ariaChat, generateQuiz, generateGoalPlan, buildAriaSystemPrompt,
-  type QuizItem, type GoalWeek,
+  ariaChat, generateQuiz, generateGoalPlan,
+  buildAriaSystemPrompt, type QuizItem, type GoalWeek,
 } from '../../services/groqService';
 import {
   saveSessionToMemory, buildMemoryContext, buildCurriculumContext,
 } from '../../services/ariaMemory';
-import type { StudentUser } from '../../types';
 
 type Mode = 'chat' | 'quiz' | 'goals';
 interface ChatMsg { id: string; role: 'user' | 'assistant'; content: string; time: string }
@@ -21,7 +20,11 @@ const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minu
 
 // ─── TYPING DOTS ──────────────────────────────────────────────────
 const TypingDots: React.FC = () => {
-  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  const dots = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
   useEffect(() => {
     const anims = dots.map((d, i) =>
       Animated.loop(Animated.sequence([
@@ -34,25 +37,32 @@ const TypingDots: React.FC = () => {
     return () => anims.forEach(a => a.stop());
   }, []);
   return (
-    <View style={styles.typingRow}>
+    <View style={s.typingRow}>
       {dots.map((d, i) => (
-        <Animated.View key={i} style={[styles.typingDot, { transform: [{ translateY: d }] }]} />
+        <Animated.View key={i} style={[s.typingDot, { transform: [{ translateY: d }] }]} />
       ))}
     </View>
   );
 };
 
-// ─── MAIN SCREEN ──────────────────────────────────────────────────
 export const StudentAriaScreen: React.FC = () => {
-  const { user, logout } = useAuthStore();
-  const student = user as StudentUser;
+  const { user } = useAuthStore();
+  const student = user as any;
   const [mode, setMode] = useState<Mode>('chat');
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [memoryContext, setMemoryContext] = useState('');
-  const [curriculumContext, setCurriculumContext] = useState('');
-  const [sessionCount, setSessionCount] = useState(0);
+  const [memCtx, setMemCtx] = useState('');
+  const [currCtx, setCurrCtx] = useState('');
+  const [quiz, setQuiz] = useState<QuizItem[]>([]);
+  const [quizIdx, setQuizIdx] = useState(0);
+  const [quizScore, setQuizScore] = useState(0);
+  const [quizDone, setQuizDone] = useState(false);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizTopic, setQuizTopic] = useState('');
+  const [goalPlan, setGoalPlan] = useState<GoalWeek[]>([]);
+  const [goalLoading, setGoalLoading] = useState(false);
+  const [selectedExam, setSelectedExam] = useState<any>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const systemPrompt = buildAriaSystemPrompt({
@@ -62,372 +72,353 @@ export const StudentAriaScreen: React.FC = () => {
     subjects: student?.subjects ?? ['Science', 'Mathematics', 'English'],
     upcomingExams: student?.upcomingExams ?? [],
     pendingHomework: student?.pendingHomework ?? [],
+    xpPoints: student?.xpPoints ?? 340,
+    level: student?.level ?? 4,
+    streak: student?.streak ?? 4,
   });
 
-  // Load memory and curriculum on mount
+  // Load memory context & show greeting
   useEffect(() => {
-    const loadContext = async () => {
+    const load = async () => {
       const studentId = student?.id ?? 'stu_001';
       const schoolId = student?.schoolId ?? 'school_001';
       const [mem, curr] = await Promise.all([
         buildMemoryContext(studentId),
         buildCurriculumContext(schoolId, student?.subjects ?? ['Science', 'Mathematics']),
       ]);
-      setMemoryContext(mem);
-      setCurriculumContext(curr);
+      setMemCtx(mem);
+      setCurrCtx(curr);
 
-      // Personalised greeting based on memory
-      const hasMemory = mem.length > 0;
       const firstName = student?.name?.split(' ')[0] ?? 'there';
-      const greeting = hasMemory
-        ? `Hey ${firstName}! 👋 Welcome back! I remember we worked on some topics recently. What would you like to explore today?`
-        : `Hey ${firstName}! 👋 I am Aria, your study companion. Your Science exam is on April 14 and Chapter 9 reading is due tomorrow. Want a quick warmup, or is there something you are stuck on?`;
+      const hw = student?.pendingHomework ?? [];
+      const exams = student?.upcomingExams ?? [];
+      const streak = student?.streak ?? 0;
 
-      setMessages([{ id: '0', role: 'assistant', time: now(), content: greeting }]);
+      let greeting = `Hi ${firstName}! I'm Aria, your AI study companion ✨\n\n`;
+      if (streak > 0) greeting += `🔥 You're on a ${streak}-day study streak — amazing!\n`;
+      if (hw.length > 0) greeting += `📚 You have ${hw.length} pending assignment${hw.length > 1 ? 's' : ''}.\n`;
+      if (exams.length > 0) {
+        const next = exams[0];
+        const daysLeft = Math.max(0, Math.round((new Date(next.date).getTime() - Date.now()) / 86400000));
+        greeting += `🎯 ${next.subject} exam in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.\n`;
+      }
+      greeting += `\nWhat would you like to work on today?`;
+
+      setMessages([{ id: '0', role: 'assistant', content: greeting, time: now() }]);
     };
-    loadContext();
+    load();
   }, []);
 
-  useEffect(() => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [messages, isTyping]);
-
-  // Save session to memory when leaving (when messages > 3)
-  useEffect(() => {
-    return () => {
-      if (messages.length > 3) {
-        const studentId = student?.id ?? 'stu_001';
-        saveSessionToMemory(studentId, messages.map(m => ({ role: m.role, content: m.content })));
-      }
-    };
-  }, [messages]);
-
-  const send = useCallback(async (text?: string) => {
-    const msg = (text ?? input).trim();
-    if (!msg) return;
+  const sendMessage = async () => {
+    if (!input.trim() || isTyping) return;
+    const userMsg = input.trim();
     setInput('');
-    const userMsg: ChatMsg = { id: Date.now().toString(), role: 'user', content: msg, time: now() };
-    setMessages(prev => [...prev, userMsg]);
+    const userEntry: ChatMsg = { id: Date.now().toString(), role: 'user', content: userMsg, time: now() };
+    setMessages(prev => [...prev, userEntry]);
     setIsTyping(true);
-    setSessionCount(c => c + 1);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-    const history = messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-    const extraContext = memoryContext + curriculumContext;
-    const reply = await ariaChat(systemPrompt, history, msg, extraContext || undefined);
+    const history = [...messages, userEntry].map(m => ({ role: m.role, content: m.content }));
+    const fullPrompt = systemPrompt + (memCtx ? `\n\nPast context:\n${memCtx}` : '') + (currCtx ? `\n\nCurriculum:\n${currCtx}` : '');
+    const response = await ariaChat(history as any, fullPrompt);
 
+    const aiEntry: ChatMsg = { id: (Date.now() + 1).toString(), role: 'assistant', content: response, time: now() };
+    setMessages(prev => [...prev, aiEntry]);
     setIsTyping(false);
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: reply, time: now() }]);
-  }, [input, messages, systemPrompt, memoryContext, curriculumContext]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-  const QUICK_PROMPTS = [
-    'Explain photosynthesis', 'Help with quadratic equations',
-    'What is on my Science exam?', 'Quiz me on Chapter 9',
-  ];
+    // Save to memory
+    await saveSessionToMemory(student?.id ?? 'stu_001', [
+      { role: 'user', content: userMsg },
+      { role: 'assistant', content: response },
+    ]);
+  };
+
+  const startQuiz = async (subject: string, topic: string) => {
+    setQuizLoading(true);
+    setQuizTopic(`${subject} — ${topic}`);
+    const questions = await generateQuiz(subject, topic, student?.grade ?? '8');
+    setQuiz(questions);
+    setQuizIdx(0);
+    setQuizScore(0);
+    setQuizDone(false);
+    setQuizLoading(false);
+  };
+
+  const handleAnswer = (selectedIdx: number) => {
+    if (!quiz[quizIdx]) return;
+    const correct = selectedIdx === quiz[quizIdx].correct;
+    if (correct) setQuizScore(s => s + 1);
+    if (quizIdx + 1 >= quiz.length) {
+      setQuizDone(true);
+    } else {
+      setQuizIdx(i => i + 1);
+    }
+  };
+
+  const loadGoalPlan = async (exam: any) => {
+    setSelectedExam(exam);
+    setGoalLoading(true);
+    const plan = await generateGoalPlan(exam.subject, exam.date, student?.name?.split(' ')[0] ?? 'Student');
+    setGoalPlan(plan);
+    setGoalLoading(false);
+  };
+
+  const quickPrompts = ['Explain photosynthesis 🌿', 'Solve: 2x + 5 = 15 📐', 'What is Newton\'s 3rd law? ⚡', 'Help me with my homework 📚', 'Quiz me on Science 🔬'];
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <StatusBar barStyle="light-content" />
-      <View style={{ flex: 1, backgroundColor: Colors.slate50 }}>
 
-        {/* Header */}
-        <View style={{backgroundColor: "#4C1D95"}}>
-          <View style={styles.headerRow}>
-            <View style={styles.ariaAv}><Text style={{ fontSize: 22 }}>✨</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.ariaName}>Aria</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <View style={styles.onlineDot} />
-                <Text style={styles.ariaStatus}>
-                  {memoryContext ? 'Remembers your sessions 🧠' : 'Ready to help'}
-                </Text>
-              </View>
+      {/* Header */}
+      <View style={s.header}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={s.ariaAvatar}><Text style={{ fontSize: 22 }}>✨</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.ariaName}>Aria</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={s.activeDot} />
+              <Text style={s.activeTxt}>AI Study Companion · Active</Text>
             </View>
-            {sessionCount > 0 && (
-              <View style={styles.sessionBadge}>
-                <Text style={styles.sessionText}>{sessionCount} msgs</Text>
+          </View>
+          <View style={s.xpPill}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: '#fbbf24' }}>⭐ {student?.xpPoints ?? 340}</Text>
+          </View>
+          <View style={s.streakPill}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: '#f87171' }}>🔥 {student?.streak ?? 4}</Text>
+          </View>
+        </View>
+
+        {/* Mode tabs */}
+        <View style={s.modeTabs}>
+          {([['chat', '💬 Chat'], ['quiz', '🧠 Quiz'], ['goals', '🎯 Goals']] as [Mode, string][]).map(([m, label]) => (
+            <TouchableOpacity key={m} style={[s.modeTab, mode === m && s.modeTabActive]} onPress={() => setMode(m)}>
+              <Text style={[s.modeTabText, mode === m && s.modeTabTextActive]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* ─── CHAT MODE ────────────────────── */}
+      {mode === 'chat' && (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
+          {/* Quick prompts */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+            {quickPrompts.map((q, i) => (
+              <TouchableOpacity key={i} style={s.quickChip} onPress={() => { setInput(q); }}>
+                <Text style={{ fontSize: 12, color: '#a5b4fc', fontWeight: '600' }}>{q}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 12 }} onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
+            {messages.map(msg => (
+              <View key={msg.id} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
+                {msg.role === 'assistant' && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                    <Text style={{ fontSize: 14 }}>✨</Text>
+                    <Text style={{ fontSize: 10, color: '#7c3aed', fontWeight: '700', textTransform: 'uppercase' }}>Aria</Text>
+                  </View>
+                )}
+                <View style={[s.bubble, msg.role === 'user' ? s.userBubble : s.aiBubble]}>
+                  <Text style={[s.bubbleText, msg.role === 'user' && { color: '#fff' }]}>{msg.content}</Text>
+                </View>
+                <Text style={[s.timeText, msg.role === 'user' && { textAlign: 'right' }]}>{msg.time}</Text>
+              </View>
+            ))}
+            {isTyping && (
+              <View style={{ alignSelf: 'flex-start' }}>
+                <View style={s.aiBubble}>
+                  <TypingDots />
+                </View>
               </View>
             )}
-            <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
-              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '700' }}>Exit</Text>
+          </ScrollView>
+
+          <View style={s.inputRow}>
+            <TextInput
+              style={s.inputField}
+              value={input}
+              onChangeText={setInput}
+              placeholder="Ask Aria anything..."
+              placeholderTextColor="#475569"
+              multiline
+              maxLength={500}
+              onSubmitEditing={sendMessage}
+              returnKeyType="send"
+            />
+            <TouchableOpacity style={[s.sendBtn, (!input.trim() || isTyping) && { opacity: 0.4 }]} onPress={sendMessage} disabled={!input.trim() || isTyping}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>↑</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
+      )}
 
-        {/* Mode switcher */}
-        <View style={styles.modeBar}>
-          {(['chat', 'quiz', 'goals'] as Mode[]).map(m => (
-            <TouchableOpacity key={m} style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
-              onPress={() => setMode(m)}>
-              <Text style={[styles.modeTxt, mode === m && styles.modeTxtActive]}>
-                {m === 'chat' ? '💬 Chat' : m === 'quiz' ? '🧠 Quiz Me' : '🎯 Goals'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Chat */}
-        {mode === 'chat' && (
-          <>
-            <ScrollView ref={scrollRef} style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
-              showsVerticalScrollIndicator={false}>
-              {memoryContext !== '' && messages.length <= 1 && (
-                <View style={styles.memoryBanner}>
-                  <Text style={styles.memoryText}>🧠 Aria remembers your past sessions</Text>
-                </View>
-              )}
-              {messages.map(m => (
-                <View key={m.id} style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAria]}>
-                  <Text style={[styles.bubbleText, m.role === 'user' ? { color: '#fff' } : { color: Colors.slate800 }]}>
-                    {m.content}
-                  </Text>
-                  <Text style={styles.bubbleTime}>{m.time}</Text>
-                </View>
-              ))}
-              {isTyping && (
-                <View style={styles.bubbleAria}><TypingDots /></View>
-              )}
-            </ScrollView>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              style={styles.quickBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
-              {QUICK_PROMPTS.map(q => (
-                <TouchableOpacity key={q} style={styles.quickChip} onPress={() => send(q)}>
-                  <Text style={styles.quickChipText}>{q}</Text>
+      {/* ─── QUIZ MODE ────────────────────── */}
+      {mode === 'quiz' && (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {quiz.length === 0 && !quizLoading && (
+            <>
+              <Text style={{ color: '#94a3b8', fontSize: 14, marginBottom: 16, textAlign: 'center' }}>Choose a subject and topic to start a quiz</Text>
+              {[
+                { subject: 'Science', topic: 'Photosynthesis & Plant Life' },
+                { subject: 'Mathematics', topic: 'Linear Equations' },
+                { subject: 'Science', topic: 'Force & Motion' },
+                { subject: 'Mathematics', topic: 'Rational Numbers' },
+                { subject: 'English', topic: 'Grammar & Comprehension' },
+                { subject: 'Social Studies', topic: 'Indian History' },
+              ].map((item, i) => (
+                <TouchableOpacity key={i} style={s.quizTopicCard} onPress={() => startQuiz(item.subject, item.topic)} activeOpacity={0.85}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#e2e8f0' }}>{item.topic}</Text>
+                    <Text style={{ fontSize: 12, color: '#7c3aed', fontWeight: '600', marginTop: 2 }}>{item.subject}</Text>
+                  </View>
+                  <Text style={{ color: '#7c3aed', fontSize: 20, fontWeight: '700' }}>›</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </>
+          )}
 
-            <View style={styles.inputBar}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Ask Aria anything..."
-                placeholderTextColor={Colors.slate400}
-                value={input}
-                onChangeText={setInput}
-                multiline
-                maxLength={500}
-              />
-              <TouchableOpacity
-                style={[styles.sendBtn, (!input.trim() || isTyping) && { opacity: 0.4 }]}
-                onPress={() => send()} disabled={!input.trim() || isTyping}>
-                <Text style={{ color: '#fff', fontSize: 18 }}>➤</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-
-        {mode === 'quiz' && <QuizMode student={student} />}
-        {mode === 'goals' && <GoalsMode student={student} />}
-      </View>
-    </KeyboardAvoidingView>
-  );
-};
-
-// ─── QUIZ MODE ────────────────────────────────────────────────────
-const QuizMode: React.FC<{ student: StudentUser }> = ({ student }) => {
-  const [phase, setPhase] = useState<'start' | 'loading' | 'active' | 'done'>('start');
-  const [questions, setQuestions] = useState<QuizItem[]>([]);
-  const [score, setScore] = useState(0);
-  const [answered, setAnswered] = useState(0);
-  const [chosen, setChosen] = useState<Record<number, number>>({});
-
-  const startQuiz = async () => {
-    setPhase('loading');
-    const q = await generateQuiz('Photosynthesis and Plant Life', student?.grade ?? '8');
-    setQuestions(q); setScore(0); setAnswered(0); setChosen({});
-    setPhase('active');
-  };
-
-  const answer = (qi: number, oi: number) => {
-    if (chosen[qi] !== undefined) return;
-    setChosen(prev => ({ ...prev, [qi]: oi }));
-    if (oi === questions[qi].correct) setScore(s => s + 1);
-    const newAnswered = answered + 1;
-    setAnswered(newAnswered);
-    if (newAnswered === questions.length) setTimeout(() => setPhase('done'), 600);
-  };
-
-  if (phase === 'start') return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-      <Text style={{ fontSize: 40, marginBottom: 16 }}>🧠</Text>
-      <Text style={styles.quizTitle}>Quiz Mode</Text>
-      <Text style={{ fontSize: 13, color: Colors.slate500, textAlign: 'center', marginBottom: 28 }}>
-        Science · Chapter 9 · 3 questions · AI-generated
-      </Text>
-      <TouchableOpacity style={[styles.sendBtn, { width: 160, height: 48, borderRadius: 12 }]} onPress={startQuiz}>
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Start Quiz ✨</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  if (phase === 'loading') return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <ActivityIndicator color={Colors.aria} size="large" />
-      <Text style={{ color: Colors.aria, fontWeight: '600', marginTop: 12 }}>Generating with Groq AI...</Text>
-    </View>
-  );
-
-  if (phase === 'done') return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-      <Text style={{ fontSize: 50, marginBottom: 16 }}>🎉</Text>
-      <Text style={styles.quizTitle}>Quiz Complete!</Text>
-      <Text style={{ fontSize: 16, color: Colors.slate600, marginBottom: 24, textAlign: 'center' }}>
-        {score}/{questions.length} · {score === questions.length ? 'Perfect! 🌟' : score >= 2 ? 'Great job! 💪' : 'Keep practising! 🚀'}
-      </Text>
-      <TouchableOpacity style={[styles.sendBtn, { width: 180, height: 48, borderRadius: 12 }]} onPress={() => setPhase('start')}>
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Try Again</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
-      {questions.map((q, qi) => (
-        <View key={qi} style={styles.quizCard}>
-          <Text style={styles.quizQNum}>Question {qi + 1} of {questions.length}</Text>
-          <Text style={styles.quizQ}>{q.question}</Text>
-          {q.options.map((opt, oi) => {
-            const sel = chosen[qi];
-            const isCorrect = oi === q.correct;
-            const isChosen = sel === oi;
-            let bg = '#fff', border = Colors.slate200, textC = Colors.slate800;
-            if (sel !== undefined) {
-              if (isCorrect) { bg = Colors.successSurface; border = Colors.success; textC = Colors.success; }
-              else if (isChosen) { bg = Colors.dangerSurface; border = Colors.danger; textC = Colors.danger; }
-            }
-            return (
-              <TouchableOpacity key={oi} onPress={() => answer(qi, oi)} disabled={sel !== undefined}
-                style={[styles.quizOpt, { backgroundColor: bg, borderColor: border }]}>
-                <Text style={{ fontSize: 13, color: textC }}>{String.fromCharCode(65 + oi)}. {opt}</Text>
-              </TouchableOpacity>
-            );
-          })}
-          {chosen[qi] !== undefined && (
-            <View style={styles.quizExp}>
-              <Text style={{ fontSize: 12, color: Colors.slate700, lineHeight: 18 }}>💡 {q.explanation}</Text>
+          {quizLoading && (
+            <View style={{ alignItems: 'center', padding: 40 }}>
+              <ActivityIndicator color="#7c3aed" size="large" />
+              <Text style={{ color: '#94a3b8', marginTop: 12, fontSize: 14 }}>Aria is preparing your quiz...</Text>
             </View>
           )}
-        </View>
-      ))}
-    </ScrollView>
-  );
-};
 
-// ─── GOALS MODE ───────────────────────────────────────────────────
-const GoalsMode: React.FC<{ student: StudentUser }> = ({ student }) => {
-  const [phase, setPhase] = useState<'input' | 'loading' | 'plan'>('input');
-  const [goalText, setGoalText] = useState('');
-  const [plan, setPlan] = useState<GoalWeek[]>([]);
+          {quiz.length > 0 && !quizLoading && !quizDone && (
+            <View>
+              <View style={s.quizHeader}>
+                <Text style={{ color: '#94a3b8', fontSize: 12 }}>{quizTopic}</Text>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>Q {quizIdx + 1}/{quiz.length}</Text>
+              </View>
+              <View style={s.quizProgress}>
+                <View style={{ width: `${((quizIdx + 1) / quiz.length) * 100}%`, height: 4, backgroundColor: '#7c3aed', borderRadius: 2 }} />
+              </View>
+              <View style={s.questionCard}>
+                <Text style={{ color: '#e2e8f0', fontSize: 16, fontWeight: '700', lineHeight: 24 }}>{quiz[quizIdx]?.question}</Text>
+              </View>
+              {quiz[quizIdx]?.options?.map((opt, i) => (
+                <TouchableOpacity key={i} style={s.optionBtn} onPress={() => handleAnswer(i)} activeOpacity={0.85}>
+                  <View style={s.optionLetter}><Text style={{ color: '#7c3aed', fontWeight: '800', fontSize: 13 }}>{String.fromCharCode(65 + i)}</Text></View>
+                  <Text style={{ color: '#e2e8f0', fontSize: 14, flex: 1 }}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
-  const generate = async () => {
-    if (!goalText.trim()) return;
-    setPhase('loading');
-    const result = await generateGoalPlan(goalText, student?.grade ?? '8', student?.subjects ?? []);
-    setPlan(result);
-    setPhase('plan');
-  };
+          {quizDone && (
+            <View style={{ alignItems: 'center', padding: 24 }}>
+              <Text style={{ fontSize: 64, marginBottom: 12 }}>{quizScore >= quiz.length * 0.8 ? '🏆' : quizScore >= quiz.length * 0.6 ? '⭐' : '📚'}</Text>
+              <Text style={{ fontSize: 32, fontWeight: '900', color: '#fff' }}>{quizScore}/{quiz.length}</Text>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: quizScore >= quiz.length * 0.8 ? '#4ade80' : '#f59e0b', marginTop: 8 }}>
+                {quizScore >= quiz.length * 0.8 ? 'Excellent!' : quizScore >= quiz.length * 0.6 ? 'Good job!' : 'Keep practicing!'}
+              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 14, marginTop: 8 }}>+{quizScore * 20} XP earned</Text>
+              <TouchableOpacity style={[s.optionBtn, { backgroundColor: '#7c3aed', marginTop: 24, borderColor: '#7c3aed' }]} onPress={() => setQuiz([])}>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>Try Another Quiz</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      )}
 
-  if (phase === 'loading') return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <ActivityIndicator color={Colors.aria} size="large" />
-      <Text style={{ color: Colors.aria, fontWeight: '600', marginTop: 12 }}>Aria is building your plan...</Text>
+      {/* ─── GOALS MODE ───────────────────── */}
+      {mode === 'goals' && (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {goalPlan.length === 0 && !goalLoading && (
+            <>
+              <Text style={{ color: '#94a3b8', fontSize: 14, marginBottom: 16, textAlign: 'center' }}>
+                Select an upcoming exam to generate a personalised study plan
+              </Text>
+              {(student?.upcomingExams ?? [{ subject: 'Science', date: '2026-04-14' }, { subject: 'Mathematics', date: '2026-04-15' }]).map((exam: any, i: number) => {
+                const daysLeft = Math.max(0, Math.round((new Date(exam.date).getTime() - Date.now()) / 86400000));
+                return (
+                  <TouchableOpacity key={i} style={s.quizTopicCard} onPress={() => loadGoalPlan(exam)} activeOpacity={0.85}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#e2e8f0' }}>{exam.subject}</Text>
+                      <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{new Date(exam.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · {daysLeft} days left</Text>
+                    </View>
+                    <View style={{ backgroundColor: daysLeft <= 3 ? '#fde8e8' : daysLeft <= 7 ? '#fef3c7' : '#dcfce7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: daysLeft <= 3 ? Colors.danger : daysLeft <= 7 ? Colors.warning : Colors.success }}>{daysLeft}d</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          )}
+
+          {goalLoading && (
+            <View style={{ alignItems: 'center', padding: 40 }}>
+              <ActivityIndicator color="#7c3aed" size="large" />
+              <Text style={{ color: '#94a3b8', marginTop: 12 }}>Aria is crafting your study plan...</Text>
+            </View>
+          )}
+
+          {goalPlan.length > 0 && !goalLoading && (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <Text style={{ color: '#e2e8f0', fontSize: 16, fontWeight: '800' }}>📅 Your Study Plan</Text>
+                <TouchableOpacity onPress={() => setGoalPlan([])}>
+                  <Text style={{ color: '#7c3aed', fontSize: 12, fontWeight: '700' }}>← Back</Text>
+                </TouchableOpacity>
+              </View>
+              {goalPlan.map((week, i) => (
+                <View key={i} style={s.weekCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>W{week.week}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#e2e8f0', fontWeight: '800', fontSize: 14 }}>{week.focus}</Text>
+                      <Text style={{ color: '#7c3aed', fontSize: 11, marginTop: 1 }}>🏁 {week.milestone}</Text>
+                    </View>
+                  </View>
+                  {week.tasks.map((task, j) => (
+                    <View key={j} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                      <Text style={{ color: '#7c3aed', fontSize: 14, marginTop: 1 }}>•</Text>
+                      <Text style={{ color: '#94a3b8', fontSize: 13, flex: 1, lineHeight: 19 }}>{task}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
-
-  if (phase === 'plan') return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
-      <View style={{backgroundColor: "#4C1D95"}}>
-        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginBottom: 4 }}>YOUR GOAL</Text>
-        <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{goalText}</Text>
-      </View>
-      {plan.map(w => (
-        <View key={w.week} style={styles.goalCard}>
-          <Text style={styles.goalWeek}>Week {w.week}</Text>
-          <Text style={styles.goalFocus}>{w.focus}</Text>
-          {w.tasks.map((t, i) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
-              <View style={[styles.goalCheck, i === 0 && w.week === 1 && styles.goalCheckDone]}>
-                {i === 0 && w.week === 1 && <Text style={{ fontSize: 10, color: '#fff' }}>✓</Text>}
-              </View>
-              <Text style={{ fontSize: 13, color: Colors.slate700, flex: 1, lineHeight: 18 }}>{t}</Text>
-            </View>
-          ))}
-          <View style={styles.goalMilestone}>
-            <Text style={{ fontSize: 11, color: Colors.aria, fontWeight: '600' }}>🏁 {w.milestone}</Text>
-          </View>
-        </View>
-      ))}
-      <TouchableOpacity style={[styles.resetBtn]} onPress={() => { setPhase('input'); setGoalText(''); setPlan([]); }}>
-        <Text style={{ color: Colors.slate600, fontWeight: '600', fontSize: 13 }}>Set New Goal</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-
-  return (
-    <ScrollView contentContainerStyle={{ padding: 16 }}>
-      <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.slate800, marginBottom: 4 }}>🎯 Set a Learning Goal</Text>
-      <Text style={{ fontSize: 12, color: Colors.slate500, marginBottom: 16 }}>
-        Aria will build a personalised 4-week study plan for you
-      </Text>
-      <TextInput
-        style={[styles.textInput, { height: 90, textAlignVertical: 'top', borderRadius: 12, marginBottom: 16, flex: 0 }]}
-        placeholder="e.g. Score above 90% in Science this term..."
-        placeholderTextColor={Colors.slate400}
-        value={goalText}
-        onChangeText={setGoalText}
-        multiline
-      />
-      <TouchableOpacity
-        style={[styles.sendBtn, { width: '100%', height: 50, borderRadius: 12 }]}
-        onPress={generate} disabled={!goalText.trim()}>
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>✨ Build My Plan</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
 };
 
-const styles = StyleSheet.create({
-  header: { paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  ariaAv: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)' },
-  ariaName: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4ADE80' },
-  ariaStatus: { fontSize: 11, color: 'rgba(255,255,255,0.65)' },
-  sessionBadge: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  sessionText: { fontSize: 10, color: '#fff', fontWeight: '600' },
-  logoutBtn: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  modeBar: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: Colors.slate200, paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  modeBtn: { flex: 1, paddingVertical: 8, borderRadius: Radius.full, backgroundColor: Colors.slate100, alignItems: 'center' },
-  modeBtnActive: { backgroundColor: Colors.aria },
-  modeTxt: { fontSize: 12, fontWeight: '700', color: Colors.slate600 },
-  modeTxtActive: { color: '#fff' },
-  memoryBanner: { backgroundColor: Colors.ariaSurface, borderRadius: 10, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(124,58,237,0.2)' },
-  memoryText: { fontSize: 12, color: Colors.aria, fontWeight: '600', textAlign: 'center' },
-  bubble: { maxWidth: '82%', padding: 12, borderRadius: 16, marginBottom: 8 },
-  bubbleAria: { backgroundColor: '#fff', borderBottomLeftRadius: 4, alignSelf: 'flex-start', borderWidth: 0.5, borderColor: Colors.slate200, maxWidth: '82%', padding: 12, borderRadius: 16, marginBottom: 8 },
-  bubbleUser: { backgroundColor: Colors.aria, borderBottomRightRadius: 4, alignSelf: 'flex-end' },
-  bubbleText: { fontSize: 14, lineHeight: 21 },
-  bubbleTime: { fontSize: 9, color: 'rgba(0,0,0,0.3)', marginTop: 4, textAlign: 'right' },
-  typingRow: { flexDirection: 'row', gap: 4, alignItems: 'center', paddingVertical: 4 },
-  typingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.slate400 },
-  quickBar: { maxHeight: 48, borderTopWidth: 0.5, borderTopColor: Colors.slate100, backgroundColor: '#fff' },
-  quickChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: Radius.full, backgroundColor: Colors.ariaSurface },
-  quickChipText: { fontSize: 12, fontWeight: '600', color: Colors.aria },
-  inputBar: { flexDirection: 'row', gap: 8, padding: 12, paddingBottom: 24, backgroundColor: '#fff', borderTopWidth: 0.5, borderTopColor: Colors.slate200, alignItems: 'flex-end' },
-  textInput: { flex: 1, borderWidth: 1.5, borderColor: Colors.slate200, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: Colors.slate800, maxHeight: 80 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.aria, alignItems: 'center', justifyContent: 'center' },
-  quizTitle: { fontSize: 20, fontWeight: '800', color: Colors.slate800, marginBottom: 8 },
-  quizCard: { backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 0.5, borderColor: Colors.slate200 },
-  quizQNum: { fontSize: 10, fontWeight: '700', color: Colors.aria, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 },
-  quizQ: { fontSize: 15, fontWeight: '700', color: Colors.slate800, marginBottom: 14, lineHeight: 22 },
-  quizOpt: { padding: 13, borderRadius: 10, borderWidth: 1.5, marginBottom: 8 },
-  quizExp: { backgroundColor: Colors.slate50, borderRadius: 10, padding: 12, marginTop: 8, borderWidth: 0.5, borderColor: Colors.slate200 },
-  goalCard: { backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 0.5, borderColor: Colors.slate200 },
-  goalWeek: { fontSize: 10, fontWeight: '700', color: Colors.aria, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 },
-  goalFocus: { fontSize: 15, fontWeight: '700', color: Colors.slate800, marginBottom: 12 },
-  goalCheck: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.slate300, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  goalCheckDone: { backgroundColor: Colors.success, borderColor: Colors.success },
-  goalMilestone: { marginTop: 12, paddingTop: 10, borderTopWidth: 0.5, borderTopColor: Colors.slate200 },
-  resetBtn: { backgroundColor: Colors.slate100, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 4 },
+const s = StyleSheet.create({
+  header: { backgroundColor: '#1e293b', paddingTop: 52, paddingBottom: 0, paddingHorizontal: 16 },
+  ariaAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center' },
+  ariaName: { fontSize: 18, fontWeight: '900', color: '#fff' },
+  activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#4ade80' },
+  activeTxt: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  xpPill: { backgroundColor: 'rgba(251,191,36,0.15)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  streakPill: { backgroundColor: 'rgba(248,113,113,0.15)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  modeTabs: { flexDirection: 'row', marginTop: 14, borderBottomWidth: 0.5, borderColor: '#334155' },
+  modeTab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
+  modeTabActive: { borderBottomWidth: 2, borderColor: '#7c3aed' },
+  modeTabText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
+  modeTabTextActive: { color: '#7c3aed' },
+  quickChip: { backgroundColor: '#1e293b', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#334155' },
+  bubble: { borderRadius: 18, padding: 14, maxWidth: '100%' },
+  userBubble: { backgroundColor: '#7c3aed', borderBottomRightRadius: 4 },
+  aiBubble: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderBottomLeftRadius: 4 },
+  bubbleText: { fontSize: 14, color: '#e2e8f0', lineHeight: 20 },
+  timeText: { fontSize: 10, color: '#475569', marginTop: 4 },
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
+  typingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#7c3aed' },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, padding: 12, borderTopWidth: 0.5, borderColor: '#1e293b', backgroundColor: '#0f172a' },
+  inputField: { flex: 1, backgroundColor: '#1e293b', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#e2e8f0', maxHeight: 120, borderWidth: 1, borderColor: '#334155' },
+  sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center' },
+  quizTopicCard: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  quizHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  quizProgress: { height: 4, backgroundColor: '#334155', borderRadius: 2, overflow: 'hidden', marginBottom: 16 },
+  questionCard: { backgroundColor: '#1e293b', borderRadius: 16, padding: 20, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
+  optionBtn: { backgroundColor: '#1e293b', borderRadius: 14, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#334155' },
+  optionLetter: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#2d1b69', alignItems: 'center', justifyContent: 'center' },
+  weekCard: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
 });

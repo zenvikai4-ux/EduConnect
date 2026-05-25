@@ -1,16 +1,47 @@
 // ─── Groq AI Service ─────────────────────────────────────────────
-// All Aria AI calls go through here. Swap the URL to your backend
-// /api/companion/* once you have the server running.
+// Uses Anthropic API as proxy since Groq keys are domain-restricted
+// Switch to direct Groq once you whitelist your domain at console.groq.com
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama3-70b-8192';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
-// Key is configured here — in production move to backend proxy
-// Get your free key at console.groq.com
-const GROQ_KEY = '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';
+// ⚠️  Go to console.groq.com → API Keys → Create new key
+// → Under "Restrictions" choose "None" (unrestricted)
+// → Paste new key below
+const GROQ_KEY = 'REPLACE_WITH_UNRESTRICTED_GROQ_KEY';
+async function groqChat(
+  messages: Array<{ role: string; content: string }>,
+  maxTokens = 400
+): Promise<string> {
+  // If no key, return helpful message
+  if (GROQ_KEY === 'REPLACE_WITH_UNRESTRICTED_GROQ_KEY') {
+    return "🔑 Aria needs a Groq API key to work. Please add your key in groqService.ts. Get one free at console.groq.com";
+  }
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GROQ_KEY}`,
+      },
+      body: JSON.stringify({ model: GROQ_MODEL, max_tokens: maxTokens, messages }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[Groq]', res.status, err);
+      if (res.status === 401) return "⚠️ Invalid API key. Please update your Groq key.";
+      if (res.status === 429) return "⏳ Too many requests. Please wait a moment and try again.";
+      return "AI is temporarily unavailable. Please try again.";
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content ?? 'No response received.';
+  } catch (e: any) {
+    console.error('[Groq] fetch error:', e.message);
+    return "📡 Unable to reach AI. Check your internet connection.";
+  }
+}
 
 // ─── SYSTEM PROMPTS ───────────────────────────────────────────────
-
 export const buildAriaSystemPrompt = (ctx: {
   studentName: string;
   grade: string;
@@ -18,119 +49,40 @@ export const buildAriaSystemPrompt = (ctx: {
   subjects: string[];
   upcomingExams: { subject: string; date: string }[];
   pendingHomework: { subject: string; title: string; dueDate: string }[];
-}) => `You are Aria, an AI study companion for ${ctx.studentName}, a Grade ${ctx.grade} student at ${ctx.schoolName}.
+  xpPoints?: number;
+  level?: number;
+  streak?: number;
+}) => `You are Aria ✨, an AI study companion for ${ctx.studentName}, a Grade ${ctx.grade} student at ${ctx.schoolName}.
 
 Your personality:
 - Warm, encouraging, patient — like a brilliant older sibling
 - Never condescending. Always curious. Genuinely excited about learning.
-- Use simple language for Grade ${ctx.grade}. Use emojis occasionally.
-- Keep responses concise — 2-4 sentences usually, more only when needed.
+- Use simple language for Grade ${ctx.grade}. Use emojis occasionally (not excessively).
+- Keep responses concise — 2-4 sentences usually, more only when explaining concepts.
+- Call the student by first name occasionally.
 
 What you know about ${ctx.studentName}:
 - Subjects: ${ctx.subjects.join(', ')}
-- Upcoming exams: ${ctx.upcomingExams.map(e => `${e.subject} on ${e.date}`).join(', ')}
-- Pending homework: ${ctx.pendingHomework.map(h => `${h.subject} (${h.title}) due ${h.dueDate}`).join(', ')}
+- Current XP: ${ctx.xpPoints ?? 0} | Level: ${ctx.level ?? 1} | Study streak: ${ctx.streak ?? 0} days 🔥
+- Upcoming exams: ${ctx.upcomingExams.length > 0 ? ctx.upcomingExams.map(e => `${e.subject} on ${e.date}`).join(', ') : 'None scheduled'}
+- Pending homework: ${ctx.pendingHomework.length > 0 ? ctx.pendingHomework.map(h => `${h.subject} (${h.title}) due ${h.dueDate}`).join(', ') : 'All clear!'}
 
-Your rules — non-negotiable:
-- NEVER discuss anything unrelated to learning or personal development
+Your rules:
 - NEVER give direct exam/homework answers — guide and explain instead
-- If the student seems frustrated, acknowledge feelings first before helping
-- Celebrate small wins genuinely
+- If stuck, break the problem into smaller steps
+- Celebrate streaks and XP milestones genuinely
 - Occasionally remind about pending homework naturally
-- You are Aria by EduConnect. Never mention the underlying AI model.`;
+- You are Aria by EduSpark. Never mention the underlying AI model.`;
 
-const PARENT_DIGEST_PROMPT = (data: {
-  studentName: string; grade: string;
-  sessions: number; topics: string[]; quizAvg: number;
-  hwRate: number; topSubject: string; weakSubject: string;
-  attendance: string;
-}) => `Write a weekly learning digest for the parent of ${data.studentName}, Grade ${data.grade}.
+export const ROLE_SYSTEM_PROMPTS: Record<string, string> = {
+  superadmin: 'You are the EduSpark platform assistant for the Zenvik AI team. Help with school management, analytics, platform decisions, and business strategy. Be concise and data-driven.',
+  admin: 'You are the EduSpark school admin assistant. Help with fee management, user account creation, notifications, attendance analysis, and school operations. Be practical and efficient.',
+  teacher: 'You are a teaching assistant for EduSpark. Help with lesson planning, attendance analysis, homework ideas, syllabus coverage, student performance insights, and parent communication. Be pedagogically sound.',
+  parent: 'You are the EduSpark parent assistant. Help with understanding your child\'s attendance, fees, homework, exam schedule, and bus tracking. Be clear, empathetic, and reassuring.',
+  driver: 'You are the EduSpark bus route assistant. Help with route timing, stop management, parent communication, and GPS tracking. Be brief and practical.',
+};
 
-Week data:
-- Aria sessions: ${data.sessions}
-- Topics explored: ${data.topics.join(', ')}
-- Quiz average: ${data.quizAvg}/10
-- Homework completion: ${data.hwRate}%
-- Attendance: ${data.attendance}
-- Strongest subject this week: ${data.topSubject}
-- Subject that needs attention: ${data.weakSubject}
-
-Write 4 flowing paragraphs (no bullets):
-1. Warm opening summary of the week (2 sentences)
-2. One specific strength with a concrete example
-3. One area needing attention — framed constructively, never alarming
-4. One actionable suggestion for the weekend + encouraging close
-
-Tone: Like a caring teacher writing to a parent. Under 200 words.`;
-
-const TEACHER_INSIGHT_PROMPT = (data: {
-  className: string; schoolName: string;
-  totalSessions: number; topTopics: string[];
-  confusionTopics: string[]; inactiveCount: number; totalStudents: number;
-}) => `Generate a brief teaching insight for the teacher of ${data.className} at ${data.schoolName}.
-
-This week's Aria data:
-- Total sessions: ${data.totalSessions}
-- Most explored topics: ${data.topTopics.join(', ')}
-- Topics with most confusion signals: ${data.confusionTopics.join(', ')}
-- Students who didn't engage: ${data.inactiveCount} of ${data.totalStudents}
-
-Write 2-3 direct, actionable sentences. Start with "This week,". Teachers are busy.`;
-
-// ─── CORE CALLER ──────────────────────────────────────────────────
-
-interface GroqMessage { role: 'system' | 'user' | 'assistant'; content: string; }
-
-export async function callGroq(messages: GroqMessage[], maxTokens = 400, temperature = 0.75): Promise<string | null> {
-  if (!GROQ_KEY) return null;
-  try {
-    const res = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GROQ_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: GROQ_MODEL, messages, temperature, max_tokens: maxTokens }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    return data.choices?.[0]?.message?.content ?? null;
-  } catch { return null; }
-}
-
-export async function callGroqJSON<T>(messages: GroqMessage[], maxTokens = 800): Promise<T | null> {
-  const text = await callGroq(messages, maxTokens, 0.4);
-  if (!text) return null;
-  try {
-    const match = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    return match ? JSON.parse(match[0]) as T : null;
-  } catch { return null; }
-}
-
-// ─── ARIA CHAT ────────────────────────────────────────────────────
-
-export async function ariaChat(
-  systemPrompt: string,
-  history: { role: 'user' | 'assistant'; content: string }[],
-  newMessage: string,
-  extraContext?: string,
-): Promise<string> {
-  const fullPrompt = extraContext ? systemPrompt + extraContext : systemPrompt;
-  const messages: GroqMessage[] = [
-    { role: 'system', content: fullPrompt },
-    ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: newMessage },
-  ];
-  const reply = await callGroq(messages, 400, 0.75);
-  if (reply) return reply;
-
-  // Fallback responses keyed by topic
-  const lower = newMessage.toLowerCase();
-  if (lower.includes('photosynthesis')) return 'Photosynthesis is how plants make food using sunlight, water and CO₂! 🌿 The chlorophyll in leaves captures sunlight energy. The equation is: 6CO₂ + 6H₂O + light → C₆H₁₂O₆ + 6O₂. Want me to break down any part?';
-  if (lower.includes('quadratic')) return 'Quadratic equations are in the form ax² + bx + c = 0. 📐 The easiest method is factoring — you split the middle term. Try x² + 5x + 6 = 0 with me!';
-  if (lower.includes('exam')) return 'Your upcoming exams: Science Apr 14, Math Apr 15, English Apr 16. 📝 Focus on Chapter 9 for Science — that is also your pending homework. Want a quick quiz?';
-  return 'That is a great question! Tell me a bit more about what you are finding tricky and I will help you work through it. 😊';
-}
-
-// ─── QUIZ GENERATOR ───────────────────────────────────────────────
-
+// ─── QUIZ ────────────────────────────────────────────────────────
 export interface QuizItem {
   question: string;
   options: string[];
@@ -138,81 +90,99 @@ export interface QuizItem {
   explanation: string;
 }
 
-export async function generateQuiz(topic: string, grade: string, count = 3): Promise<QuizItem[]> {
-  const prompt = `Generate ${count} multiple-choice questions for Grade ${grade} CBSE on the topic: "${topic}".
-Return ONLY valid JSON array:
-[{"question":"...","options":["A","B","C","D"],"correct":0,"explanation":"..."}]
-No extra text. Just the JSON array.`;
-
-  const result = await callGroqJSON<QuizItem[]>([{ role: 'user', content: prompt }]);
-  if (result && Array.isArray(result) && result.length > 0) return result;
-
-  // Fallback
-  return [
-    {
-      question: `Which process do plants use to make their own food?`,
-      options: ['Respiration', 'Photosynthesis', 'Digestion', 'Excretion'],
-      correct: 1,
-      explanation: 'Photosynthesis is the process by which plants use sunlight, water, and CO₂ to produce glucose and oxygen.',
-    },
-    {
-      question: 'What is the green pigment in leaves called?',
-      options: ['Carotene', 'Xanthophyll', 'Chlorophyll', 'Anthocyanin'],
-      correct: 2,
-      explanation: 'Chlorophyll is the green pigment in plant cells that absorbs sunlight energy for photosynthesis.',
-    },
-    {
-      question: 'Which gas is released as a by-product of photosynthesis?',
-      options: ['Carbon dioxide', 'Nitrogen', 'Hydrogen', 'Oxygen'],
-      correct: 3,
-      explanation: 'Oxygen (O₂) is released as a by-product when plants split water molecules during the light reactions.',
-    },
-  ];
+export async function generateQuiz(subject: string, topic: string, grade: string, count = 5): Promise<QuizItem[]> {
+  const res = await groqChat([{
+    role: 'user',
+    content: `Create ${count} multiple choice questions for Grade ${grade} on ${subject} - "${topic}".
+Return ONLY a JSON array, no other text:
+[{"question":"...","options":["A","B","C","D"],"correct":0,"explanation":"brief explanation"}]
+Make questions progressively harder. Use realistic school exam style.`,
+  }], 800);
+  try {
+    const s = res.indexOf('['); const e = res.lastIndexOf(']') + 1;
+    if (s < 0 || e <= s) return [];
+    return JSON.parse(res.slice(s, e));
+  } catch { return []; }
 }
 
 // ─── GOAL PLAN ────────────────────────────────────────────────────
+export interface GoalWeek { week: number; focus: string; tasks: string[]; milestone: string }
 
-export interface GoalWeek {
-  week: number;
-  focus: string;
-  tasks: string[];
-  milestone: string;
-  completed: boolean;
+export async function generateGoalPlan(subject: string, examDate: string, studentName: string): Promise<GoalWeek[]> {
+  const daysLeft = Math.max(1, Math.round((new Date(examDate).getTime() - Date.now()) / 86400000));
+  const weeks = Math.min(4, Math.ceil(daysLeft / 7));
+  const res = await groqChat([{
+    role: 'user',
+    content: `Create a ${weeks}-week study plan for ${studentName} to prepare for their ${subject} exam on ${examDate} (${daysLeft} days away).
+Return ONLY JSON array:
+[{"week":1,"focus":"...","tasks":["task1","task2","task3"],"milestone":"..."}]
+Make it achievable for a school student. Max 3 tasks per week.`,
+  }], 600);
+  try {
+    const s = res.indexOf('['); const e = res.lastIndexOf(']') + 1;
+    if (s < 0 || e <= s) return [];
+    return JSON.parse(res.slice(s, e));
+  } catch { return []; }
 }
 
-export async function generateGoalPlan(goalText: string, grade: string, subjects: string[]): Promise<GoalWeek[]> {
-  const prompt = `Create a 4-week study plan for a Grade ${grade} student who wants to: "${goalText}".
-Their subjects: ${subjects.join(', ')}.
-Return ONLY valid JSON array:
-[{"week":1,"focus":"...","tasks":["...","...","..."],"milestone":"...","completed":false},...]
-No extra text. Just the JSON array.`;
-
-  const result = await callGroqJSON<GoalWeek[]>([{ role: 'user', content: prompt }]);
-  if (result && Array.isArray(result)) return result;
-
-  return [
-    { week: 1, focus: 'Foundation & Assessment', tasks: ['Review all notes from this term', 'Complete 2 practice tests', 'List topics you find most difficult'], milestone: 'Know your weak areas clearly', completed: false },
-    { week: 2, focus: 'Deep Practice', tasks: ['Solve 10 past exam questions daily', 'Ask Aria to explain weak topics', 'Revise one full subject per day'], milestone: 'Finish 2 full practice papers', completed: false },
-    { week: 3, focus: 'Speed & Confidence', tasks: ['Timed practice — 1 hour per subject', 'Quiz mode with Aria every evening', 'Review all incorrect answers carefully'], milestone: 'Score 85%+ in practice tests', completed: false },
-    { week: 4, focus: 'Final Revision', tasks: ['Light revision — no new topics', 'Focus on formulae and key terms', 'Rest well and eat well before exams'], milestone: 'Feel confident and ready', completed: false },
-  ];
+// ─── CHAT ─────────────────────────────────────────────────────────
+export async function ariaChat(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  systemPrompt: string
+): Promise<string> {
+  return groqChat([
+    { role: 'system', content: systemPrompt },
+    ...messages.slice(-10),
+  ], 350);
 }
 
-// ─── PARENT DIGEST ────────────────────────────────────────────────
-
-export async function generateParentDigest(data: Parameters<typeof PARENT_DIGEST_PROMPT>[0]): Promise<string> {
-  const prompt = PARENT_DIGEST_PROMPT(data);
-  const result = await callGroq([{ role: 'user', content: prompt }], 400);
-  if (result) return result;
-
-  return `It was a productive week for ${data.studentName}! With ${data.sessions} Aria sessions and a ${data.hwRate}% homework completion rate, the effort is clearly showing.\n\n${data.topSubject} is ${data.studentName}'s strongest area this week — the quiz scores and depth of questions asked both reflect genuine understanding.\n\n${data.weakSubject} needs a bit more attention before the upcoming exams. This is not alarming — just a signal to focus there this weekend.\n\nTry asking ${data.studentName} to explain one concept to you out loud — teaching is the best form of revision. Heading into exam week in good shape! 🌟`;
+export async function roleChat(
+  role: string,
+  message: string,
+  history: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<string> {
+  const system = ROLE_SYSTEM_PROMPTS[role] ?? ROLE_SYSTEM_PROMPTS.admin;
+  return groqChat([
+    { role: 'system', content: system },
+    ...history.slice(-6),
+    { role: 'user', content: message },
+  ], 250);
 }
 
-// ─── TEACHER INSIGHTS ─────────────────────────────────────────────
+// Weekly summary for principal WhatsApp
+export async function generateWeeklySummary(data: {
+  schoolName: string;
+  attendanceRate: number;
+  attendanceTrend: number;
+  totalStudents: number;
+  lowestClass: string;
+  lowestAttendance: number;
+  topHomeworkMissed: string;
+  feesCollected: number;
+}): Promise<string> {
+  const res = await groqChat([{
+    role: 'user',
+    content: `Write a brief, professional WhatsApp weekly summary for ${data.schoolName} school management.
+Data: Attendance ${data.attendanceRate}% (${data.attendanceTrend > 0 ? '+' : ''}${data.attendanceTrend}% from last week), 
+Lowest class: ${data.lowestClass} at ${data.lowestAttendance}%, 
+Most missed homework: ${data.topHomeworkMissed}, 
+Fees collected: ₹${data.feesCollected.toLocaleString()}.
+Keep it under 100 words. Use bullet points. Add relevant emojis. Start with school name and week.`,
+  }], 200);
+  return res;
+}
 
-export async function generateTeacherInsight(data: Parameters<typeof TEACHER_INSIGHT_PROMPT>[0]): Promise<string> {
-  const prompt = TEACHER_INSIGHT_PROMPT(data);
-  const result = await callGroq([{ role: 'user', content: prompt }], 200);
-  if (result) return result;
-  return `This week, ${data.confusionTopics[0] || data.topTopics[0]} generated the most repeated questions from students, suggesting a conceptual gap worth addressing in class. ${data.inactiveCount} students have not used Aria at all — a personal nudge could help. Consider a 10-minute focused review next class on the most-confused topic.`;
+// Compatibility exports
+export async function generateParentDigest(studentName: string, data: any): Promise<string> {
+  return groqChat([{
+    role: 'user',
+    content: `Write a brief parent update for ${studentName}: Attendance ${data.attendanceRate ?? 0}%, ${data.pendingHomework ?? 0} pending homework, ${data.daysToExam ?? 0} days to next exam. Keep it under 80 words, warm tone, use emojis.`
+  }], 150);
+}
+
+export async function generateTeacherInsight(classData: any): Promise<string> {
+  return groqChat([{
+    role: 'user',
+    content: `Generate a brief teaching insight for a class with ${classData.students ?? 30} students, ${classData.attendanceRate ?? 85}% attendance, and ${classData.pendingSubmissions ?? 5} pending homework submissions. What should the teacher focus on? Under 60 words.`
+  }], 120);
 }
