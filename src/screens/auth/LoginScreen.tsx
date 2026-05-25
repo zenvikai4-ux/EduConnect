@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  SafeAreaView, StatusBar, ActivityIndicator,
-  KeyboardAvoidingView, Platform, ScrollView,
+  SafeAreaView, StatusBar, KeyboardAvoidingView,
+  Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
@@ -15,10 +15,7 @@ const C = {
 };
 
 export default function LoginScreen() {
-  const loginWithPhone = useAuthStore(s => s.loginWithPhone);
-  const error = useAuthStore(s => s.error);
-  const clearError = useAuthStore(s => s.clearError);
-
+  const { login, error, clearError } = useAuthStore();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -33,16 +30,23 @@ export default function LoginScreen() {
       useAuthStore.setState({ error: 'Enter your password.' });
       return;
     }
-    // Synchronous — no loading state, no async
-    loginWithPhone(cleanPhone, password.trim());
+    // Pass phone directly — authStore handles the rest
+    login({ phone: cleanPhone, password: password.trim() });
   };
 
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={C.white} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={s.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Logo */}
           <View style={s.logoSection}>
             <View style={s.logoBox}>
               <Text style={{ fontSize: 32 }}>⚡</Text>
@@ -51,6 +55,7 @@ export default function LoginScreen() {
             <Text style={s.tagline}>by Zenvik AI</Text>
           </View>
 
+          {/* Card */}
           <View style={s.card}>
             <Text style={s.cardTitle}>Welcome back</Text>
             <Text style={s.cardSub}>Sign in with your school credentials</Text>
@@ -68,7 +73,7 @@ export default function LoginScreen() {
               <TextInput
                 style={s.input}
                 value={phone}
-                onChangeText={(t) => { clearError(); setPhone(t); }}
+                onChangeText={t => { clearError(); setPhone(t); }}
                 placeholder="10-digit number"
                 placeholderTextColor={C.gray400}
                 keyboardType="phone-pad"
@@ -81,7 +86,7 @@ export default function LoginScreen() {
               <TextInput
                 style={[s.input, { flex: 1 }]}
                 value={password}
-                onChangeText={(t) => { clearError(); setPassword(t); }}
+                onChangeText={t => { clearError(); setPassword(t); }}
                 placeholder="Enter your password"
                 placeholderTextColor={C.gray400}
                 secureTextEntry={!showPass}
@@ -89,7 +94,10 @@ export default function LoginScreen() {
                 onSubmitEditing={handleLogin}
               />
               <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 8 }}>
-                <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={20} color={C.gray400} />
+                <Ionicons
+                  name={showPass ? 'eye-off-outline' : 'eye-outline'}
+                  size={20} color={C.gray400}
+                />
               </TouchableOpacity>
             </View>
 
@@ -99,7 +107,9 @@ export default function LoginScreen() {
 
             <View style={s.helpBox}>
               <Ionicons name="information-circle-outline" size={14} color={C.gray400} />
-              <Text style={s.helpText}>Credentials provided by your school administrator.</Text>
+              <Text style={s.helpText}>
+                Credentials provided by your school administrator.
+              </Text>
             </View>
           </View>
 
