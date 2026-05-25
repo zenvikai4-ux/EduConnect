@@ -6,7 +6,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const C = {
   brand: '#1E3A8A', white: '#fff', gray50: '#f8fafc',
@@ -15,90 +14,27 @@ const C = {
   dangerBg: '#fde8e8', dangerText: '#9b1c1c',
 };
 
-// Complete user objects — exactly what authStore needs
-const USERS: Record<string, { phone: string; password: string; role: string; user: any }> = {
-  '9059717476': {
-    phone: '9059717476', password: 'Admin@123', role: 'superadmin',
-    user: { id: 'sa_001', name: 'Platform Admin', phone: '+91 9059717476', role: 'superadmin', isActive: true },
-  },
-  '9876500001': {
-    phone: '9876500001', password: 'Admin@1234', role: 'admin',
-    user: { id: 'admin_001', name: 'Rajesh Kumar', phone: '+91 9876500001', role: 'admin', schoolId: 'school_001', isActive: true },
-  },
-  '9876500002': {
-    phone: '9876500002', password: 'Principal@1234', role: 'admin',
-    user: { id: 'prin_001', name: 'Dr. Sunita Sharma', phone: '+91 9876500002', role: 'admin', schoolId: 'school_001', isActive: true },
-  },
-  '9876500003': {
-    phone: '9876500003', password: 'Teacher@1234', role: 'teacher',
-    user: { id: 'tchr_001', name: 'Ms. Kavitha Rao', phone: '+91 9876500003', role: 'teacher', schoolId: 'school_001', isActive: true },
-  },
-  '9876500004': {
-    phone: '9876500004', password: 'Student@1234', role: 'student',
-    user: {
-      id: 'stu_001', name: 'Arjun Patel', phone: '+91 9876500004', role: 'student',
-      schoolId: 'school_001', classId: 'class_8a', grade: '8', section: 'A',
-      rollNumber: '8A-01', parentId: 'par_001',
-      subjects: ['Science', 'Mathematics', 'English', 'Social Studies', 'Hindi'],
-      upcomingExams: [
-        { subject: 'Science', date: '2026-06-14' },
-        { subject: 'Mathematics', date: '2026-06-15' },
-        { subject: 'English', date: '2026-06-16' },
-      ],
-      pendingHomework: [
-        { subject: 'Science', title: 'Chapter 9 Reading', dueDate: '2026-05-28' },
-        { subject: 'Mathematics', title: 'Exercise 5.3', dueDate: '2026-05-29' },
-      ],
-      xpPoints: 340, level: 4, streak: 4, isActive: true,
-    },
-  },
-  '9876500005': {
-    phone: '9876500005', password: 'Parent@1234', role: 'parent',
-    user: { id: 'par_001', name: 'Suresh Patel', phone: '+91 9876500005', role: 'parent', schoolId: 'school_001', isActive: true },
-  },
-  '9876500006': {
-    phone: '9876500006', password: 'Driver@1234', role: 'driver',
-    user: { id: 'drv_001', name: 'Ramu Yadav', phone: '+91 9876500006', role: 'driver', schoolId: 'school_001', busNumber: 'Bus #12', routeName: 'Route A · HSR Layout', isActive: true },
-  },
-};
-
 export default function LoginScreen() {
-  const { } = useAuthStore(); // just to trigger re-render
+  const loginWithPhone = useAuthStore(s => s.loginWithPhone);
+  const error = useAuthStore(s => s.error);
+  const clearError = useAuthStore(s => s.clearError);
+
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     const cleanPhone = phone.replace(/\s/g, '');
     if (!cleanPhone || cleanPhone.length !== 10) {
-      setError('Enter a valid 10-digit mobile number.'); return;
+      useAuthStore.setState({ error: 'Enter a valid 10-digit mobile number.' });
+      return;
     }
-    if (!password.trim()) { setError('Enter your password.'); return; }
-
-    const record = USERS[cleanPhone];
-    if (!record) { setError('Mobile number not registered.'); return; }
-    if (record.password !== password.trim()) { setError('Incorrect password.'); return; }
-
-    setLoading(true); setError('');
-    try {
-      // Directly set the auth state — bypasses all authStore login logic
-      const token = `eduspark_${cleanPhone}_${Date.now()}`;
-      await AsyncStorage.setItem('auth_token', token);
-      await AsyncStorage.setItem('auth_user', JSON.stringify(record.user));
-      // Update zustand store directly
-      useAuthStore.setState({
-        user: record.user,
-        token,
-        isAuthenticated: true,
-        isLoading: false,
-        error: null,
-      });
-    } catch (e: any) {
-      setError('Login failed. Please try again.');
-      setLoading(false);
+    if (!password.trim()) {
+      useAuthStore.setState({ error: 'Enter your password.' });
+      return;
     }
+    // Synchronous — no loading state, no async
+    loginWithPhone(cleanPhone, password.trim());
   };
 
   return (
@@ -106,6 +42,7 @@ export default function LoginScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={C.white} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
           <View style={s.logoSection}>
             <View style={s.logoBox}>
               <Text style={{ fontSize: 32 }}>⚡</Text>
@@ -131,12 +68,11 @@ export default function LoginScreen() {
               <TextInput
                 style={s.input}
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(t) => { clearError(); setPhone(t); }}
                 placeholder="10-digit number"
                 placeholderTextColor={C.gray400}
                 keyboardType="phone-pad"
                 maxLength={10}
-                editable={!loading}
               />
             </View>
 
@@ -145,11 +81,10 @@ export default function LoginScreen() {
               <TextInput
                 style={[s.input, { flex: 1 }]}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(t) => { clearError(); setPassword(t); }}
                 placeholder="Enter your password"
                 placeholderTextColor={C.gray400}
                 secureTextEntry={!showPass}
-                editable={!loading}
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
               />
@@ -158,16 +93,8 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[s.btn, loading && { opacity: 0.65 }]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading
-                ? <ActivityIndicator color={C.white} size="small" />
-                : <Text style={s.btnText}>Sign In</Text>
-              }
+            <TouchableOpacity style={s.btn} onPress={handleLogin} activeOpacity={0.85}>
+              <Text style={s.btnText}>Sign In</Text>
             </TouchableOpacity>
 
             <View style={s.helpBox}>
