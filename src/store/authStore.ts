@@ -67,14 +67,23 @@ interface AuthStore {
 }
 
 export const useAuthStore = create<AuthStore>((set) => ({
-  user: null, token: null, isAuthenticated: false, isLoading: true, error: null,
+  user: null, token: null, isAuthenticated: false,
+  // KEY FIX: start as false so spinner never blocks login screen
+  isLoading: false,
+  error: null,
 
   restoreSession: async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
-      const userJson = await AsyncStorage.getItem('auth_user');
+      const [token, userJson] = await Promise.race([
+        Promise.all([
+          AsyncStorage.getItem('auth_token'),
+          AsyncStorage.getItem('auth_user'),
+        ]),
+        // Timeout after 2 seconds — never block forever
+        new Promise<[null, null]>(r => setTimeout(() => r([null, null]), 2000)),
+      ]);
       if (token && userJson) {
-        set({ user: JSON.parse(userJson), token, isAuthenticated: true, isLoading: false });
+        set({ user: JSON.parse(userJson as string), token, isAuthenticated: true, isLoading: false });
       } else {
         set({ isLoading: false });
       }
@@ -83,43 +92,31 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
-  // Accepts { phone, password } OR legacy { username, password, role }
   login: async (credentials) => {
-    // Phone-based login (new)
+    // Phone-based login
     if (credentials.phone) {
-      const phone = credentials.phone.replace(/\s/g, '');
+      const phone = String(credentials.phone).replace(/\s/g, '');
       const entry = PHONE_TO_USER[phone];
-      if (!entry) {
-        set({ error: 'Mobile number not registered.' });
-        return;
-      }
-      if (!entry.passwords.includes(credentials.password)) {
-        set({ error: 'Incorrect password.' });
-        return;
-      }
+      if (!entry) { set({ error: 'Mobile number not registered.' }); return; }
+      if (!entry.passwords.includes(credentials.password)) { set({ error: 'Incorrect password.' }); return; }
       const found = DEMO_USERS[entry.username];
       const token = `demo_${phone}_${Date.now()}`;
-      // Save in background, don't await
+      // Save async in background
       AsyncStorage.setItem('auth_token', token).catch(() => {});
       AsyncStorage.setItem('auth_user', JSON.stringify(found.user)).catch(() => {});
-      // Set state immediately - no loading
+      // Instant state update
       set({ user: found.user, token, isAuthenticated: true, isLoading: false, error: null });
       return;
     }
-
-    // Legacy username-based login
-    set({ isLoading: true, error: null });
-    await new Promise(r => setTimeout(r, 300));
+    // Legacy username login
     const found = DEMO_USERS[credentials.username];
     if (found && found.password === credentials.password && found.user.role === credentials.role) {
       const token = `demo_${credentials.username}_${Date.now()}`;
-      try {
-        await AsyncStorage.setItem('auth_token', token);
-        await AsyncStorage.setItem('auth_user', JSON.stringify(found.user));
-      } catch {}
+      AsyncStorage.setItem('auth_token', token).catch(() => {});
+      AsyncStorage.setItem('auth_user', JSON.stringify(found.user)).catch(() => {});
       set({ user: found.user, token, isAuthenticated: true, isLoading: false, error: null });
     } else {
-      set({ isLoading: false, error: 'Invalid credentials.' });
+      set({ error: 'Invalid credentials.' });
     }
   },
 
