@@ -8,7 +8,8 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 // ⚠️  Go to console.groq.com → API Keys → Create new key
 // → Under "Restrictions" choose "None" (unrestricted)
 // → Paste new key below
-const GROQ_KEY = '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';
+const GROQ_KEY = 'REPLACE_WITH_UNRESTRICTED_GROQ_KEY';
+
 async function groqChat(
   messages: Array<{ role: string; content: string }>,
   maxTokens = 400

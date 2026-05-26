@@ -1,105 +1,111 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar, Alert } from 'react-native';
-import { AppHeader, Badge, SectionHeader } from '../../components/shared';
-import { useAuthStore } from '../../store/authStore';
-import { Colors, Spacing } from '../../constants/theme';
+import { HOMEWORK } from '../../data/demoData';
 
-const HOMEWORK = [
-  { id: 1, subject: 'Science', title: 'Chapter 9 — Photosynthesis Reading', due: 'Tomorrow · Apr 10', status: 'urgent', icon: '🌿' },
-  { id: 2, subject: 'Mathematics', title: 'Exercise 5.3 — Quadratic Equations', due: 'Apr 11', status: 'pending', icon: '📐' },
-  { id: 3, subject: 'Social Studies', title: 'Map Work — Rivers of India', due: 'Apr 14', status: 'pending', icon: '🗺️' },
-  { id: 4, subject: 'English', title: 'Essay Draft — My Favourite Season', due: 'Submitted Apr 8', status: 'done', icon: '📝' },
-  { id: 5, subject: 'Hindi', title: 'Paragraph Writing', due: 'Submitted Apr 5', status: 'done', icon: '✍️' },
-];
+const C = { brand:'#1E3A8A', brandLight:'#EEF2FF', success:'#059669', successBg:'#D1FAE5', warning:'#D97706', warningBg:'#FEF3C7', danger:'#DC2626', dangerBg:'#FEE2E2', purple:'#7C3AED', slate900:'#0F172A', slate700:'#334155', slate500:'#64748B', slate100:'#F1F5F9', white:'#FFFFFF' };
 
 export const StudentHomeworkScreen: React.FC = () => {
-  const { logout } = useAuthStore();
-  const [submitted, setSubmitted] = useState<number[]>([4, 5]);
+  const [homework, setHomework] = useState(HOMEWORK);
+  const [filter, setFilter] = useState<'all'|'pending'|'submitted'|'verified'>('all');
 
-  const pending = HOMEWORK.filter(h => !submitted.includes(h.id));
-  const done = HOMEWORK.filter(h => submitted.includes(h.id));
-
-  const markDone = (id: number, title: string) => {
-    Alert.alert('Mark as Done?', `Mark "${title}" as submitted?`, [
+  const submit = (id: string) => {
+    Alert.alert('Submit Homework', 'Mark this homework as done?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Mark Done ✅', onPress: () => setSubmitted(prev => [...prev, id]) },
+      { text: 'Submit ✓', onPress: () => {
+        setHomework(prev => prev.map(h => h.id === id ? { ...h, status: 'submitted' } : h));
+      }},
     ]);
   };
 
-  const getBadge = (status: string, id: number) => {
-    if (submitted.includes(id)) return <Badge text="Done ✅" bg={Colors.successSurface} color={Colors.success} />;
-    if (status === 'urgent') return <Badge text="Urgent" bg={Colors.dangerSurface} color={Colors.danger} />;
-    return <Badge text="Pending" bg={Colors.warningSurface} color={Colors.warning} />;
-  };
+  const filtered = homework.filter(h => filter === 'all' || h.status === filter);
+  const pending = homework.filter(h => h.status === 'pending').length;
+
+  const statusColor = (s: string) => s === 'verified' ? C.success : s === 'submitted' ? C.brand : C.warning;
+  const statusBg = (s: string) => s === 'verified' ? C.successBg : s === 'submitted' ? C.brandLight : C.warningBg;
+  const statusLabel = (s: string) => s === 'verified' ? '✓ Verified' : s === 'submitted' ? '⏳ Submitted' : '⚠ Pending';
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.slate50 }}>
+    <View style={{ flex: 1, backgroundColor: C.slate100 }}>
       <StatusBar barStyle="light-content" />
-      <AppHeader title="Homework" subtitle={`${pending.length} pending · ${done.length} done this week`}
-        initials="AS" gradientColors={['#4C1D95', '#6D28D9']} onLogout={logout} />
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          {[['📋', String(HOMEWORK.length), 'Total'], ['⏳', String(pending.length), 'Pending'], ['✅', String(done.length), 'Done']].map(([ic, v, l]) => (
-            <View key={l} style={styles.statBox}>
-              <Text style={{ fontSize: 20 }}>{ic}</Text>
-              <Text style={styles.statVal}>{v}</Text>
-              <Text style={styles.statLbl}>{l}</Text>
+      <View style={s.header}>
+        <Text style={s.headerLabel}>HOMEWORK</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <Text style={s.headerTitle}>My Assignments</Text>
+          {pending > 0 && (
+            <View style={s.pendingBadge}>
+              <Text style={{ color: C.white, fontSize: 12, fontWeight: '800' }}>{pending} pending</Text>
             </View>
+          )}
+        </View>
+        <View style={s.filterRow}>
+          {(['all','pending','submitted','verified'] as const).map(f => (
+            <TouchableOpacity key={f} style={[s.filterChip, filter === f && s.filterChipActive]} onPress={() => setFilter(f)}>
+              <Text style={[s.filterText, filter === f && s.filterTextActive]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
+            </TouchableOpacity>
           ))}
         </View>
+      </View>
 
-        {pending.length > 0 && (
-          <>
-            <SectionHeader title="Pending" />
-            {pending.map(hw => (
-              <TouchableOpacity key={hw.id} style={styles.hwCard} onPress={() => markDone(hw.id, hw.title)} activeOpacity={0.85}>
-                <View style={styles.hwIcon}><Text style={{ fontSize: 22 }}>{hw.icon}</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.hwSubject}>{hw.subject}</Text>
-                  <Text style={styles.hwTitle} numberOfLines={2}>{hw.title}</Text>
-                  <Text style={styles.hwDue}>📅 {hw.due}</Text>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        {filtered.map((hw, i) => {
+          const daysLeft = Math.max(0, Math.round((new Date(hw.dueDate).getTime() - Date.now()) / 86400000));
+          const isOverdue = daysLeft === 0 && hw.status === 'pending';
+          return (
+            <View key={hw.id} style={[s.card, isOverdue && { borderLeftWidth: 4, borderLeftColor: C.danger }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <View style={s.subjectTag}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: C.brand }}>{hw.subject}</Text>
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 8 }}>
-                  {getBadge(hw.status, hw.id)}
-                  <Text style={{ fontSize: 10, color: Colors.primary, fontWeight: '600' }}>Tap to mark done</Text>
+                <View style={[s.statusTag, { backgroundColor: statusBg(hw.status) }]}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: statusColor(hw.status) }}>{statusLabel(hw.status)}</Text>
                 </View>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
-
-        {done.length > 0 && (
-          <>
-            <SectionHeader title="Completed ✅" />
-            {done.map(hw => (
-              <View key={hw.id} style={[styles.hwCard, { opacity: 0.6 }]}>
-                <View style={styles.hwIcon}><Text style={{ fontSize: 22 }}>{hw.icon}</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.hwSubject}>{hw.subject}</Text>
-                  <Text style={[styles.hwTitle, { textDecorationLine: 'line-through' }]} numberOfLines={2}>{hw.title}</Text>
-                  <Text style={styles.hwDue}>{hw.due}</Text>
-                </View>
-                <Badge text="Done ✅" bg={Colors.successSurface} color={Colors.success} />
               </View>
-            ))}
-          </>
-        )}
+
+              <Text style={s.hwTitle}>{hw.title}</Text>
+
+              <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, marginBottom: hw.status === 'pending' ? 12 : 0 }}>
+                <Text style={{ fontSize: 12, color: isOverdue ? C.danger : C.slate500, fontWeight: isOverdue ? '700' : '400' }}>
+                  📅 {isOverdue ? 'OVERDUE!' : `Due ${new Date(hw.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
+                </Text>
+                <Text style={{ fontSize: 12, color: C.brand, fontWeight: '700' }}>⭐ +{hw.xpReward} XP</Text>
+                <Text style={{ fontSize: 12, color: C.slate500 }}>👥 {hw.submissions}/{hw.total}</Text>
+              </View>
+
+              {hw.status === 'pending' && (
+                <TouchableOpacity style={s.submitBtn} onPress={() => submit(hw.id)} activeOpacity={0.85}>
+                  <Text style={s.submitBtnText}>✓ Mark as Done · +{hw.xpReward} XP</Text>
+                </TouchableOpacity>
+              )}
+              {hw.status === 'submitted' && (
+                <Text style={{ fontSize: 12, color: C.brand, fontStyle: 'italic' }}>Awaiting teacher verification...</Text>
+              )}
+              {hw.status === 'verified' && (
+                <Text style={{ fontSize: 12, color: C.success, fontWeight: '700' }}>✓ Teacher verified · XP credited!</Text>
+              )}
+            </View>
+          );
+        })}
+        <View style={{ height: 24 }} />
       </ScrollView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  content: { padding: Spacing.base, paddingBottom: 100 },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  statBox: { flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 0.5, borderColor: Colors.slate200 },
-  statVal: { fontSize: 24, fontWeight: '800', color: Colors.slate800, marginTop: 4, marginBottom: 2 },
-  statLbl: { fontSize: 11, color: Colors.slate500 },
-  hwCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 0.5, borderColor: Colors.slate200 },
-  hwIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.slate50, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: Colors.slate200 },
-  hwSubject: { fontSize: 10, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-  hwTitle: { fontSize: 14, fontWeight: '600', color: Colors.slate800, lineHeight: 20, marginBottom: 4 },
-  hwDue: { fontSize: 11, color: Colors.slate500 },
+const s = StyleSheet.create({
+  header: { backgroundColor: C.brand, paddingTop: 52, paddingBottom: 0, paddingHorizontal: 18 },
+  headerLabel: { fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: '#fff', marginTop: 2, marginBottom: 14 },
+  pendingBadge: { backgroundColor: C.danger, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, marginBottom: 14 },
+  filterRow: { flexDirection: 'row', gap: 8, paddingBottom: 14, borderTopWidth: 0.5, borderColor: 'rgba(255,255,255,0.2)', paddingTop: 12 },
+  filterChip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: 'rgba(255,255,255,0.1)' },
+  filterChipActive: { backgroundColor: '#F59E0B' },
+  filterText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.6)' },
+  filterTextActive: { color: '#fff' },
+  scroll: { padding: 16, paddingBottom: 32 },
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  subjectTag: { backgroundColor: C.brandLight, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  statusTag: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  hwTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', lineHeight: 21 },
+  submitBtn: { backgroundColor: C.brand, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  submitBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
 });

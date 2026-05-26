@@ -1,29 +1,32 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View } from 'react-native';
-import { Colors } from '../../constants/theme';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Text } from 'react-native';
 import { ParentHomeScreen } from './ParentHomeScreen';
-import { ParentAriaScreen } from './ParentAriaScreen';
-import { ParentProgressScreen, ParentFeeScreen, ParentAttendanceScreen } from './ParentScreens';
+import { ParentAttendanceScreen, ParentFeeScreen, ParentBusScreen, ParentProgressScreen, ParentNotificationsScreen } from './ParentScreens';
 
 const Tab = createBottomTabNavigator();
-const COLOR = '#7C2D12';
+const Stack = createNativeStackNavigator();
 
-const Icon = ({ e, focused }: { e: string; focused: boolean }) => (
-  <Text style={{ fontSize: focused ? 22 : 20, opacity: focused ? 1 : 0.5 }}>{e}</Text>
+const HomeStack = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="ParentHomeMain" component={ParentHomeScreen} />
+    <Stack.Screen name="Notifications" component={ParentNotificationsScreen} />
+    <Stack.Screen name="Progress" component={ParentProgressScreen} />
+  </Stack.Navigator>
 );
 
+const Ico = ({ e, c }: { e: string; c: string }) => <Text style={{ fontSize: 22, color: c }}>{e}</Text>;
+
 export const ParentNavigator: React.FC = () => (
-  <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: COLOR, tabBarInactiveTintColor: '#94A3B8', tabBarLabelStyle: { fontSize: 10, fontWeight: '600' }, tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#E2E8F0', paddingBottom: 6, height: 60 } }}>
-    <Tab.Screen name="Home" component={ParentHomeScreen} options={{ tabBarIcon: ({ focused }) => <Icon e="🏠" focused={focused} /> }} />
-    <Tab.Screen name="Progress" component={ParentProgressScreen} options={{ tabBarIcon: ({ focused }) => <Icon e="📊" focused={focused} /> }} />
-    <Tab.Screen name="Fees" component={ParentFeeScreen} options={{ tabBarIcon: ({ focused }) => <Icon e="💰" focused={focused} /> }} />
-    <Tab.Screen name="Aria" component={ParentAriaScreen} options={{ tabBarIcon: ({ focused }) => (
-      <View style={{ position: 'relative' }}>
-        <Icon e="✨" focused={focused} />
-        {!focused && <View style={{ position: 'absolute', top: -2, right: -4, width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.aria, borderWidth: 1.5, borderColor: '#F8FAFC' }} />}
-      </View>
-    ), tabBarLabel: 'Aria' }} />
-    <Tab.Screen name="Messages" component={ParentAttendanceScreen} options={{ tabBarIcon: ({ focused }) => <Icon e="💬" focused={focused} /> }} />
+  <Tab.Navigator screenOptions={{ headerShown: false,
+    tabBarStyle: { backgroundColor: '#fff', borderTopWidth: 0.5, borderTopColor: '#E2E8F0', height: 64, paddingBottom: 8, paddingTop: 6 },
+    tabBarActiveTintColor: '#7C2D12', tabBarInactiveTintColor: '#94A3B8',
+    tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
+  }}>
+    <Tab.Screen name="Home"       component={HomeStack}               options={{ tabBarIcon: ({ color }) => <Ico e="🏠" c={color} />, tabBarLabel: 'Home' }} />
+    <Tab.Screen name="Attendance" component={ParentAttendanceScreen}  options={{ tabBarIcon: ({ color }) => <Ico e="📅" c={color} />, tabBarLabel: 'Attendance' }} />
+    <Tab.Screen name="Fees"       component={ParentFeeScreen}         options={{ tabBarIcon: ({ color }) => <Ico e="💰" c={color} />, tabBarLabel: 'Fees' }} />
+    <Tab.Screen name="Bus"        component={ParentBusScreen}         options={{ tabBarIcon: ({ color }) => <Ico e="🚌" c={color} />, tabBarLabel: 'Bus' }} />
   </Tab.Navigator>
 );

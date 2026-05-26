@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useAuthStore } from '../store/authStore';
+import { useStore } from '../store';
 import { Colors } from '../constants/theme';
 
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -18,8 +18,9 @@ import { DriverNavigator } from '../screens/driver/DriverNavigator';
 const Stack = createNativeStackNavigator();
 
 export const RootNavigator: React.FC = () => {
-  const { isAuthenticated, user, isLoading, restoreSession } = useAuthStore();
-  useEffect(() => { restoreSession(); }, []);
+  const { isLoggedIn, user, isLoading, hydrate } = useStore();
+
+  useEffect(() => { hydrate(); }, []);
 
   if (isLoading) return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -31,21 +32,26 @@ export const RootNavigator: React.FC = () => {
     </GestureHandlerRootView>
   );
 
+  // role from useStore user
+  const role = user?.role;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
-            {!isAuthenticated ? (
+            {!isLoggedIn ? (
               <Stack.Screen name="Login" component={LoginScreen} />
             ) : (
               <>
-                {user?.role === 'superadmin' && <Stack.Screen name="SuperAdmin" component={SuperAdminNavigator} />}
-                {user?.role === 'admin' && <Stack.Screen name="Admin" component={AdminNavigator} />}
-                {user?.role === 'teacher' && <Stack.Screen name="Teacher" component={TeacherNavigator} />}
-                {user?.role === 'parent' && <Stack.Screen name="Parent" component={ParentNavigator} />}
-                {user?.role === 'student' && <Stack.Screen name="Student" component={StudentNavigator} />}
-                {user?.role === 'driver' && <Stack.Screen name="Driver" component={DriverNavigator} />}
+                {role === 'super_admin' && <Stack.Screen name="SuperAdmin" component={SuperAdminNavigator} />}
+                {role === 'admin' && <Stack.Screen name="Admin" component={AdminNavigator} />}
+                {role === 'principal' && <Stack.Screen name="Admin" component={AdminNavigator} />}
+                {role === 'teacher' && <Stack.Screen name="Teacher" component={TeacherNavigator} />}
+                {role === 'class_teacher' && <Stack.Screen name="Teacher" component={TeacherNavigator} />}
+                {role === 'parent' && <Stack.Screen name="Parent" component={ParentNavigator} />}
+                {role === 'student' && <Stack.Screen name="Student" component={StudentNavigator} />}
+                {role === 'driver' && <Stack.Screen name="Driver" component={DriverNavigator} />}
               </>
             )}
           </Stack.Navigator>

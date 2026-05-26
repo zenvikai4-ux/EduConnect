@@ -1,47 +1,33 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View } from 'react-native';
-import { Colors } from '../../constants/theme';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Text } from 'react-native';
 import { StudentHomeScreen } from './StudentHomeScreen';
-import { StudentAriaScreen } from './StudentAriaScreen';
 import { StudentGradesScreen } from './StudentGradesScreen';
 import { StudentHomeworkScreen } from './StudentHomeworkScreen';
 import { StudentCompeteScreen } from './StudentCompeteScreen';
+import { StudentAriaScreen } from './StudentAriaScreen';
 
 const Tab = createBottomTabNavigator();
-const PURPLE = '#6D28D9';
+const Stack = createNativeStackNavigator();
+const Ico = ({ e, c }: { e: string; c: string }) => <Text style={{ fontSize: 22, color: c }}>{e}</Text>;
 
-const TabIcon = ({ emoji, focused }: { emoji: string; focused: boolean }) => (
-  <Text style={{ fontSize: focused ? 22 : 20, opacity: focused ? 1 : 0.5 }}>{emoji}</Text>
+const HomeStack = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="StudentHomeMain" component={StudentHomeScreen} />
+  </Stack.Navigator>
 );
 
 export const StudentNavigator: React.FC = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      headerShown: false,
-      tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#E2E8F0', paddingBottom: 6, height: 60 },
-      tabBarActiveTintColor: PURPLE,
-      tabBarInactiveTintColor: '#94A3B8',
-      tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
-    })}
-  >
-    <Tab.Screen name="Home" component={StudentHomeScreen}
-      options={{ tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />, tabBarLabel: 'Home' }} />
-    <Tab.Screen name="Aria" component={StudentAriaScreen}
-      options={{
-        tabBarIcon: ({ focused }) => (
-          <View style={{ position: 'relative' }}>
-            <TabIcon emoji="✨" focused={focused} />
-            {!focused && <View style={{ position: 'absolute', top: -2, right: -4, width: 7, height: 7, borderRadius: 4, backgroundColor: PURPLE, borderWidth: 1.5, borderColor: '#F8FAFC' }} />}
-          </View>
-        ),
-        tabBarLabel: 'Aria',
-      }} />
-    <Tab.Screen name="Grades" component={StudentGradesScreen}
-      options={{ tabBarIcon: ({ focused }) => <TabIcon emoji="📊" focused={focused} />, tabBarLabel: 'Grades' }} />
-    <Tab.Screen name="Homework" component={StudentHomeworkScreen}
-      options={{ tabBarIcon: ({ focused }) => <TabIcon emoji="📚" focused={focused} />, tabBarLabel: 'Homework' }} />
-    <Tab.Screen name="Compete" component={StudentCompeteScreen}
-      options={{ tabBarIcon: ({ focused }) => <TabIcon emoji="🏆" focused={focused} />, tabBarLabel: 'Compete' }} />
+  <Tab.Navigator screenOptions={{ headerShown: false,
+    tabBarStyle: { backgroundColor: '#fff', borderTopWidth: 0.5, borderTopColor: '#E2E8F0', height: 64, paddingBottom: 8, paddingTop: 6 },
+    tabBarActiveTintColor: '#1E3A8A', tabBarInactiveTintColor: '#94A3B8',
+    tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
+  }}>
+    <Tab.Screen name="Home"     component={HomeStack}             options={{ tabBarIcon: ({ color }) => <Ico e="🏠" c={color} />, tabBarLabel: 'Home' }} />
+    <Tab.Screen name="Aria"     component={StudentAriaScreen}     options={{ tabBarIcon: ({ color }) => <Ico e="✨" c={color} />, tabBarLabel: 'Aria AI' }} />
+    <Tab.Screen name="Homework" component={StudentHomeworkScreen} options={{ tabBarIcon: ({ color }) => <Ico e="📝" c={color} />, tabBarLabel: 'Homework' }} />
+    <Tab.Screen name="Grades"   component={StudentGradesScreen}   options={{ tabBarIcon: ({ color }) => <Ico e="📊" c={color} />, tabBarLabel: 'Progress' }} />
+    <Tab.Screen name="Compete"  component={StudentCompeteScreen}  options={{ tabBarIcon: ({ color }) => <Ico e="🏆" c={color} />, tabBarLabel: 'Compete' }} />
   </Tab.Navigator>
 );
